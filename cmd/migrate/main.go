@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"regexp"
@@ -47,14 +48,24 @@ func connectMySQL(ctx context.Context) (*sql.DB, error) {
 	if !regexp.MustCompile(`^[A-Za-z0-9_]+$`).MatchString(database) {
 		return nil, errors.New("MYSQL_DATABASE hanya boleh berisi huruf, angka, dan underscore")
 	}
-	adminDB, err := sql.Open("mysql", cfg.FormatDSN())
+
+	var adminDB *sql.DB
+	var err error
+	for i := 0; i < 15; i++ {
+		adminDB, err = sql.Open("mysql", cfg.FormatDSN())
+		if err == nil {
+			if err = adminDB.PingContext(ctx); err == nil {
+				break
+			}
+			adminDB.Close()
+		}
+		log.Printf("[MYSQL] Menunggu server MySQL %s siap (attempt %d/15)...", cfg.Addr, i+1)
+		time.Sleep(2 * time.Second)
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("connect to MySQL admin DB: %w", err)
 	}
-	if err := adminDB.PingContext(ctx); err != nil {
-		adminDB.Close()
-		return nil, err
-	}
+
 	if _, err := adminDB.ExecContext(ctx, "CREATE DATABASE IF NOT EXISTS `"+database+"` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		adminDB.Close()
 		return nil, err
@@ -64,17 +75,25 @@ func connectMySQL(ctx context.Context) (*sql.DB, error) {
 	}
 
 	cfg.DBName = database
-	db, err := sql.Open("mysql", cfg.FormatDSN())
-	if err != nil {
-		return nil, err
+	var db *sql.DB
+	for i := 0; i < 15; i++ {
+		db, err = sql.Open("mysql", cfg.FormatDSN())
+		if err == nil {
+			if err = db.PingContext(ctx); err == nil {
+				break
+			}
+			db.Close()
+		}
+		log.Printf("[MYSQL] Menunggu database MySQL %s siap (attempt %d/15)...", database, i+1)
+		time.Sleep(2 * time.Second)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("connect to MySQL DB: %w", err)
+	}
+
 	db.SetMaxOpenConns(5)
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(5 * time.Minute)
-	if err := db.PingContext(ctx); err != nil {
-		db.Close()
-		return nil, err
-	}
 	return db, nil
 }
 
