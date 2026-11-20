@@ -132,18 +132,13 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 }
 
 func (r *MySQL) seedUser(ctx context.Context, name, email, password, role string) error {
-	var exists int
-	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE email = ?", email).Scan(&exists); err != nil {
-		return err
-	}
-	if exists > 0 {
-		return nil
-	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
-	_, err = r.db.ExecContext(ctx, "INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)", name, email, string(hash), role)
+	_, err = r.db.ExecContext(ctx, `INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE name = VALUES(name), password_hash = VALUES(password_hash), role = VALUES(role)`,
+		name, email, string(hash), role)
 	return err
 }
 
