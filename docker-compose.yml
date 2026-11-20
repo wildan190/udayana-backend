@@ -6,16 +6,16 @@ services:
     container_name: udayana-mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password_change_me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-admindb@2025}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-udayana}
-      MYSQL_USER: ${MYSQL_USER:-udayana}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-udayana_secret_123}
+      MYSQL_USER: ${MYSQL_USER:-udayana_root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-admindb@2025}
     ports:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root_password_change_me}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-admindb@2025}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -46,8 +46,8 @@ services:
     command: ["/app/udayana-migrate"]
     environment:
       MYSQL_ADDR: mysql:3306
-      MYSQL_USER: ${MYSQL_USER:-udayana}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-udayana_secret_123}
+      MYSQL_USER: ${MYSQL_USER:-udayana_root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-admindb@2025}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-udayana}
       REDIS_ADDR: redis:6379
       MIDTRANS_ENV: ${MIDTRANS_ENV:-production}
@@ -69,8 +69,8 @@ services:
     environment:
       API_ADDR: :8080
       MYSQL_ADDR: mysql:3306
-      MYSQL_USER: ${MYSQL_USER:-udayana}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-udayana_secret_123}
+      MYSQL_USER: ${MYSQL_USER:-udayana_root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-admindb@2025}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-udayana}
       REDIS_ADDR: redis:6379
       JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-udayana-market-2026}
