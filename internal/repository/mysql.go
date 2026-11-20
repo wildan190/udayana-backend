@@ -147,7 +147,7 @@ func (r *MySQL) seedUser(ctx context.Context, name, email, password, role string
 
 func (r *MySQL) FindCredential(ctx context.Context, email string) (domain.Credential, error) {
 	var credential domain.Credential
-	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, phone, province, city, district, subdistrict, rt_rw, postal_code, address, password_hash
+	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,''), password_hash
 		FROM users WHERE email = ?`, email).Scan(
 		&credential.User.ID, &credential.User.Name, &credential.User.Email,
 		&credential.User.Role, &credential.User.Phone,
@@ -369,8 +369,8 @@ func (r *MySQL) CreateOrder(ctx context.Context, userID int64, items []domain.Or
 }
 
 func (r *MySQL) ListOrders(ctx context.Context, userID int64, admin bool) ([]domain.Order, error) {
-	query := `SELECT o.id, o.user_id, u.name, u.email, u.role, u.phone, u.province, u.city, u.district, u.subdistrict, u.rt_rw, u.postal_code, u.address, o.total_cents,
-		o.payment_method, o.shipping_address, o.midtrans_response, o.status, o.created_at FROM orders o JOIN users u ON u.id=o.user_id`
+	query := `SELECT o.id, o.user_id, u.name, u.email, u.role, COALESCE(u.phone,''), COALESCE(u.province,''), COALESCE(u.city,''), COALESCE(u.district,''), COALESCE(u.subdistrict,''), COALESCE(u.rt_rw,''), COALESCE(u.postal_code,''), COALESCE(u.address,''), o.total_cents,
+		o.payment_method, COALESCE(o.shipping_address,''), COALESCE(o.midtrans_response,'{}'), o.status, o.created_at FROM orders o JOIN users u ON u.id=o.user_id`
 	args := []any{}
 	if !admin {
 		query += " WHERE o.user_id = ?"
@@ -488,7 +488,7 @@ func (r *MySQL) UpdateOrderStatus(ctx context.Context, id int64, status string) 
 }
 
 func (r *MySQL) ListCustomers(ctx context.Context) ([]domain.User, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, name, email, role, phone, province, city, district, subdistrict, rt_rw, postal_code, address
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,'')
 		FROM users WHERE role = 'buyer' ORDER BY created_at DESC`)
 	if err != nil {
 		log.Printf("[MYSQL ERROR] ListCustomers query gagal: %v", err)
@@ -515,7 +515,7 @@ func (r *MySQL) UpdateCustomer(ctx context.Context, id int64, user domain.User) 
 		return domain.User{}, err
 	}
 	var customer domain.User
-	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, phone, province, city, district, subdistrict, rt_rw, postal_code, address
+	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,'')
 		FROM users WHERE id = ? AND role = 'buyer'`, id).Scan(
 		&customer.ID, &customer.Name, &customer.Email, &customer.Role, &customer.Phone,
 		&customer.Province, &customer.City, &customer.District, &customer.Subdistrict, &customer.RTRW, &customer.PostalCode, &customer.Address)
@@ -536,7 +536,7 @@ func (r *MySQL) UpdateUserAddress(ctx context.Context, id int64, user domain.Use
 	log.Printf("[MYSQL INFO] UpdateUserAddress sukses untuk user_id=%d, rows affected: %d", id, rows)
 
 	var updated domain.User
-	err = r.db.QueryRowContext(ctx, `SELECT id, name, email, role, phone, province, city, district, subdistrict, rt_rw, postal_code, address
+	err = r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,'')
 		FROM users WHERE id = ?`, id).Scan(
 		&updated.ID, &updated.Name, &updated.Email, &updated.Role, &updated.Phone,
 		&updated.Province, &updated.City, &updated.District, &updated.Subdistrict, &updated.RTRW, &updated.PostalCode, &updated.Address)
@@ -560,7 +560,7 @@ func (r *MySQL) UpdatePassword(ctx context.Context, userID int64, passwordHash s
 
 func (r *MySQL) FindUser(ctx context.Context, userID int64) (domain.User, error) {
 	var user domain.User
-	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, phone, province, city, district, subdistrict, rt_rw, postal_code, address
+	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,'')
 		FROM users WHERE id = ?`, userID).Scan(
 		&user.ID, &user.Name, &user.Email, &user.Role, &user.Phone,
 		&user.Province, &user.City, &user.District, &user.Subdistrict, &user.RTRW, &user.PostalCode, &user.Address)
