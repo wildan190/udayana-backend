@@ -245,6 +245,10 @@ func (*registrationTestStore) ListWithdrawals(context.Context) ([]domain.Withdra
 	return nil, errors.New("unexpected ListWithdrawals call")
 }
 
+func (*registrationTestStore) PromoteAdmin(context.Context, string) error {
+	return nil
+}
+
 func signedToken(t *testing.T, secret []byte, claims map[string]any) string {
 	t.Helper()
 	payload, err := json.Marshal(claims)

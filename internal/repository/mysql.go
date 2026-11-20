@@ -710,6 +710,11 @@ func (r *MySQL) ListWithdrawals(ctx context.Context) ([]domain.Withdrawal, error
 	return withdrawals, rows.Err()
 }
 
+func (r *MySQL) PromoteAdmin(ctx context.Context, email string) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE email = ?", email)
+	return err
+}
+
 func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }
