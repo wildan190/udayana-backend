@@ -16,13 +16,11 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/udayana-api ./cmd/api
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/udayana-migrate ./cmd/migrate
 
-# Stage 2: Minimal Production Image
-FROM alpine:3.20
+# Stage 2: Final runtime image reusing builder base image
+FROM golang:1.24-alpine AS runner
 
 WORKDIR /app
 
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /app/bin/udayana-api /app/udayana-api
 COPY --from=builder /app/bin/udayana-migrate /app/udayana-migrate
 
