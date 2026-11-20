@@ -241,15 +241,21 @@ func positiveQueryInt(r *http.Request, key string, fallback int) (int, error) {
 }
 
 func (c *Controller) createProduct(w http.ResponseWriter, r *http.Request) {
+	userID, role := middleware.Identity(r)
+	log.Printf("[HTTP] Menerima request POST /api/v1/admin/products dari user_id=%d (role=%s)", userID, role)
 	var request requests.Product
 	if !decode(w, r, &request) {
+		log.Printf("[HTTP ERROR] Gagal mendecode request body untuk tambah produk")
 		return
 	}
+	log.Printf("[HTTP INFO] Payload produk diterima: Nama=%q, Kategori=%q, Harga=%d, Stok=%d", request.Name, request.Category, request.PriceCents, request.Stock)
 	product, err := c.store.SaveProduct(r.Context(), toProduct(request), 0)
 	if err != nil {
+		log.Printf("[HTTP ERROR] Store.SaveProduct (create) gagal: %v", err)
 		writeOperationError(w, err)
 		return
 	}
+	log.Printf("[HTTP SUCCESS] Produk baru berhasil dibuat dengan ID=%d, Nama=%q", product.ID, product.Name)
 	writeJSON(w, http.StatusCreated, product)
 }
 
@@ -258,15 +264,21 @@ func (c *Controller) updateProduct(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	userID, role := middleware.Identity(r)
+	log.Printf("[HTTP] Menerima request PUT /api/v1/admin/products/%d dari user_id=%d (role=%s)", id, userID, role)
 	var request requests.Product
 	if !decode(w, r, &request) {
+		log.Printf("[HTTP ERROR] Gagal mendecode request body untuk update produk ID=%d", id)
 		return
 	}
+	log.Printf("[HTTP INFO] Payload update produk ID=%d diterima: Nama=%q, Kategori=%q, Harga=%d, Stok=%d", id, request.Name, request.Category, request.PriceCents, request.Stock)
 	product, err := c.store.SaveProduct(r.Context(), toProduct(request), id)
 	if err != nil {
+		log.Printf("[HTTP ERROR] Store.SaveProduct (update) gagal untuk ID=%d: %v", id, err)
 		writeOperationError(w, err)
 		return
 	}
+	log.Printf("[HTTP SUCCESS] Produk ID=%d berhasil diperbarui", id)
 	writeJSON(w, http.StatusOK, product)
 }
 
@@ -275,10 +287,14 @@ func (c *Controller) deleteProduct(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	userID, role := middleware.Identity(r)
+	log.Printf("[HTTP] Menerima request DELETE /api/v1/admin/products/%d dari user_id=%d (role=%s)", id, userID, role)
 	if err := c.store.DeactivateProduct(r.Context(), id); err != nil {
+		log.Printf("[HTTP ERROR] Store.DeactivateProduct gagal untuk ID=%d: %v", id, err)
 		writeOperationError(w, err)
 		return
 	}
+	log.Printf("[HTTP SUCCESS] Produk ID=%d berhasil dihapus", id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
