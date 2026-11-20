@@ -35,6 +35,11 @@ func main() {
 	defer db.Close()
 
 	store := repository.NewMySQL(db)
+	log.Printf("[MIGRATE] Menjalankan migrasi database Udayana...")
+	if err := store.MigrateAndSeed(ctx); err != nil {
+		log.Fatalf("[MIGRATE ERROR] Gagal migrasi database: %v", err)
+	}
+	log.Printf("[MIGRATE SUCCESS] Migrasi database dan seeding berhasil diselesaikan.")
 
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     env("REDIS_ADDR", "127.0.0.1:6379"),

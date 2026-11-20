@@ -38,33 +38,10 @@ services:
     networks:
       - udayana-network
 
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: udayana-backend:latest
-    container_name: udayana-migrate
-    command: ["/app/udayana-migrate"]
-    environment:
-      MYSQL_ADDR: mysql:3306
-      MYSQL_USER: ${MYSQL_USER:-udayana_root}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-admindb@2025}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-udayana}
-      REDIS_ADDR: redis:6379
-      MIDTRANS_ENV: ${MIDTRANS_ENV:-production}
-      MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-Mid-server-4MjfNoKyHg2hSZpfcHTq4KuW}
-      MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-Mid-client-v5rqlvwW-Gd8S6C_}
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - udayana-network
-
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    image: udayana-backend:latest
     container_name: udayana-api
     restart: always
     command: ["/app/udayana-api"]
@@ -90,8 +67,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     networks:
       - udayana-network
 
