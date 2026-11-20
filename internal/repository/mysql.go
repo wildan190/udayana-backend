@@ -105,6 +105,9 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 	if err := r.seedUser(ctx, "Admin Udayana", "admin@udayana.com", "admin@2025", "admin"); err != nil {
 		return err
 	}
+	if err := r.seedUser(ctx, "Super Admin", "superadmin@udayana.com", "admin@2025", "admin"); err != nil {
+		return err
+	}
 	if err := r.seedUser(ctx, "Admin Local", "admin@udayana.local", "admin123", "admin"); err != nil {
 		return err
 	}
