@@ -168,7 +168,15 @@ func (s *Store) VerifyToken(token string) (int64, string, error) {
 		claims.Expires <= time.Now().Unix() || (claims.Role != "admin" && claims.Role != "buyer") {
 		return 0, "", errors.New("token tidak valid atau kedaluwarsa")
 	}
-	return claims.Subject, claims.Role, nil
+
+	role := claims.Role
+	if s.db != nil {
+		if user, err := s.db.FindUser(context.Background(), claims.Subject); err == nil && user.Role != "" {
+			role = user.Role
+		}
+	}
+
+	return claims.Subject, role, nil
 }
 
 func (s *Store) ListProducts(ctx context.Context, query domain.ProductQuery) (domain.ProductPage, error) {

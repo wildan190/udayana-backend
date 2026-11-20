@@ -214,7 +214,7 @@ func (*registrationTestStore) Report(context.Context, string, string) (domain.Re
 }
 
 func (*registrationTestStore) FindUser(context.Context, int64) (domain.User, error) {
-	return domain.User{}, errors.New("unexpected FindUser call")
+	return domain.User{Role: "buyer"}, nil
 }
 
 func (*registrationTestStore) FindPasswordHash(context.Context, int64) (string, error) {
