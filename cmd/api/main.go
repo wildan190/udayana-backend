@@ -12,13 +12,14 @@ import (
 	"strconv"
 	"time"
 
-	mysqlDriver "github.com/go-sql-driver/mysql"
-	"github.com/joho/godotenv"
-	"github.com/redis/go-redis/v9"
 	"udayana-backend/internal/controller"
 	"udayana-backend/internal/repository"
 	"udayana-backend/internal/service"
 	"udayana-backend/internal/storage"
+
+	mysqlDriver "github.com/go-sql-driver/mysql"
+	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
