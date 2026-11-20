@@ -491,6 +491,7 @@ func (r *MySQL) ListCustomers(ctx context.Context) ([]domain.User, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id, name, email, role, phone, province, city, district, subdistrict, rt_rw, postal_code, address
 		FROM users WHERE role = 'buyer' ORDER BY created_at DESC`)
 	if err != nil {
+		log.Printf("[MYSQL ERROR] ListCustomers query gagal: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -499,10 +500,12 @@ func (r *MySQL) ListCustomers(ctx context.Context) ([]domain.User, error) {
 		var customer domain.User
 		if err := rows.Scan(&customer.ID, &customer.Name, &customer.Email, &customer.Role, &customer.Phone,
 			&customer.Province, &customer.City, &customer.District, &customer.Subdistrict, &customer.RTRW, &customer.PostalCode, &customer.Address); err != nil {
+			log.Printf("[MYSQL ERROR] ListCustomers scan gagal: %v", err)
 			return nil, err
 		}
 		customers = append(customers, customer)
 	}
+	log.Printf("[MYSQL INFO] ListCustomers sukses, total: %d", len(customers))
 	return customers, rows.Err()
 }
 
