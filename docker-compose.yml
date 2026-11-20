@@ -10,8 +10,6 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-udayana}
       MYSQL_USER: ${MYSQL_USER:-udayana_root}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-admindb@2025}
-    ports:
-      - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -26,8 +24,6 @@ services:
     image: redis:7-alpine
     container_name: udayana-redis
     restart: always
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -62,20 +58,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - udayana-network
-
-  nginx:
-    image: nginx:alpine
-    container_name: udayana-nginx
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-    depends_on:
-      - api
     networks:
       - udayana-network
 
