@@ -102,7 +102,10 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 			log.Printf("migration alter notice (safe if column/index already exists): %v", err)
 		}
 	}
-	if err := r.seedUser(ctx, "Admin Udayana", "admin@udayana.local", "admin123", "admin"); err != nil {
+	if err := r.seedUser(ctx, "Admin Udayana", "admin@udayana.com", "admin@2025", "admin"); err != nil {
+		return err
+	}
+	if err := r.seedUser(ctx, "Admin Local", "admin@udayana.local", "admin123", "admin"); err != nil {
 		return err
 	}
 	if err := r.seedUser(ctx, "Pembeli Demo", "buyer@udayana.local", "buyer123", "buyer"); err != nil {
