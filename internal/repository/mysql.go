@@ -290,18 +290,8 @@ func (r *MySQL) UpdateProduct(ctx context.Context, id int64, product domain.Prod
 }
 
 func (r *MySQL) DeactivateProduct(ctx context.Context, id int64) error {
-	result, err := r.db.ExecContext(ctx, "UPDATE products SET active = FALSE WHERE id = ?", id)
-	if err != nil {
-		return err
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	_, err := r.db.ExecContext(ctx, "UPDATE products SET active = FALSE WHERE id = ?", id)
+	return err
 }
 
 func (r *MySQL) CreateOrder(ctx context.Context, userID int64, items []domain.OrderItem, paymentMethod, shippingAddress string) (domain.Order, error) {
