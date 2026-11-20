@@ -290,7 +290,7 @@ func (r *MySQL) UpdateProduct(ctx context.Context, id int64, product domain.Prod
 }
 
 func (r *MySQL) DeactivateProduct(ctx context.Context, id int64) error {
-	_, err := r.db.ExecContext(ctx, "UPDATE products SET active = FALSE WHERE id = ?", id)
+	_, err := r.db.ExecContext(ctx, "DELETE FROM products WHERE id = ?", id)
 	return err
 }
 
