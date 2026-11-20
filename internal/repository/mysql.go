@@ -34,7 +34,7 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 			province VARCHAR(100) NOT NULL DEFAULT '', city VARCHAR(100) NOT NULL DEFAULT '',
 			district VARCHAR(100) NOT NULL DEFAULT '', subdistrict VARCHAR(100) NOT NULL DEFAULT '',
 			rt_rw VARCHAR(30) NOT NULL DEFAULT '', postal_code VARCHAR(20) NOT NULL DEFAULT '',
-			address TEXT NOT NULL DEFAULT '',
+			address TEXT NULL,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS products (
@@ -91,7 +91,7 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 		"ALTER TABLE users ADD COLUMN subdistrict VARCHAR(100) NOT NULL DEFAULT ''",
 		"ALTER TABLE users ADD COLUMN rt_rw VARCHAR(30) NOT NULL DEFAULT ''",
 		"ALTER TABLE users ADD COLUMN postal_code VARCHAR(20) NOT NULL DEFAULT ''",
-		"ALTER TABLE users MODIFY COLUMN address TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE users MODIFY COLUMN address TEXT NULL",
 		"ALTER TABLE orders MODIFY COLUMN shipping_address TEXT NULL",
 		"ALTER TABLE orders MODIFY COLUMN midtrans_response TEXT NULL",
 		"ALTER TABLE orders MODIFY COLUMN status ENUM('pending','processing','shipping','completed','cancelled') NOT NULL DEFAULT 'pending'",
