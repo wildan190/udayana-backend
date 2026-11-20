@@ -48,8 +48,8 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS orders (
 			id BIGINT PRIMARY KEY AUTO_INCREMENT, user_id BIGINT NOT NULL,
 			total_cents BIGINT NOT NULL, payment_method ENUM('COD','MIDTRANS','MIDTRANS_QRIS') NOT NULL DEFAULT 'COD',
-			shipping_address TEXT NOT NULL,
-			midtrans_response TEXT NOT NULL,
+			shipping_address TEXT NULL,
+			midtrans_response TEXT NULL,
 			status ENUM('pending','processing','shipping','completed','cancelled') NOT NULL DEFAULT 'pending',
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users(id)
@@ -92,8 +92,8 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 		"ALTER TABLE users ADD COLUMN rt_rw VARCHAR(30) NOT NULL DEFAULT ''",
 		"ALTER TABLE users ADD COLUMN postal_code VARCHAR(20) NOT NULL DEFAULT ''",
 		"ALTER TABLE users MODIFY COLUMN address TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE orders ADD COLUMN shipping_address TEXT NOT NULL",
-		"ALTER TABLE orders ADD COLUMN midtrans_response TEXT NOT NULL",
+		"ALTER TABLE orders MODIFY COLUMN shipping_address TEXT NULL",
+		"ALTER TABLE orders MODIFY COLUMN midtrans_response TEXT NULL",
 		"ALTER TABLE orders MODIFY COLUMN status ENUM('pending','processing','shipping','completed','cancelled') NOT NULL DEFAULT 'pending'",
 		"ALTER TABLE orders MODIFY COLUMN payment_method ENUM('COD','MIDTRANS','MIDTRANS_QRIS') NOT NULL DEFAULT 'COD'",
 	}
