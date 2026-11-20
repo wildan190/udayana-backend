@@ -37,8 +37,8 @@ func main() {
 
 func connectMySQL(ctx context.Context) (*sql.DB, error) {
 	cfg := mysqlDriver.NewConfig()
-	cfg.User = env("MYSQL_USER", "root")
-	cfg.Passwd = os.Getenv("MYSQL_PASSWORD")
+	cfg.User = env("MYSQL_USER", "udayana_root")
+	cfg.Passwd = env("MYSQL_PASSWORD", "admindb@2025")
 	cfg.Net = "tcp"
 	cfg.Addr = env("MYSQL_ADDR", "127.0.0.1:3306")
 	cfg.ParseTime = true
