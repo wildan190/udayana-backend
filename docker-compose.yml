@@ -38,31 +38,11 @@ services:
     networks:
       - udayana-network
 
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: udayana-migrate
-    command: ["/app/udayana-migrate"]
-    environment:
-      MYSQL_ADDR: mysql:3306
-      MYSQL_USER: ${MYSQL_USER:-udayana_root}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-admindb@2025}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-udayana}
-      REDIS_ADDR: redis:6379
-      MIDTRANS_ENV: ${MIDTRANS_ENV:-production}
-      MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-Mid-server-4MjfNoKyHg2hSZpfcHTq4KuW}
-      MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-Mid-client-v5rqlvwW-Gd8S6C_}
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - udayana-network
-
   api:
     build:
       context: .
       dockerfile: Dockerfile
+    image: udayana-backend:latest
     container_name: udayana-api
     restart: always
     command: ["/app/udayana-api"]
@@ -75,7 +55,7 @@ services:
       REDIS_ADDR: redis:6379
       JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-udayana-market-2026}
       MIDTRANS_ENV: ${MIDTRANS_ENV:-production}
-      MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-Mid-server-4MjfNoKyHg2hSZpfcHTq4KuW}
+      MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-Mid-server-4MjfNoKyHg2hSZpfcHTq4KyW}
       MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-Mid-client-v5rqlvwW-Gd8S6C_}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
@@ -84,9 +64,28 @@ services:
       retries: 5
       start_period: 5s
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       redis:
+        condition: service_healthy
+    networks:
+      - udayana-network
+
+  migrate:
+    image: udayana-backend:latest
+    container_name: udayana-migrate
+    command: ["/app/udayana-migrate"]
+    environment:
+      MYSQL_ADDR: mysql:3306
+      MYSQL_USER: ${MYSQL_USER:-udayana_root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-admindb@2025}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-udayana}
+      REDIS_ADDR: redis:6379
+      MIDTRANS_ENV: ${MIDTRANS_ENV:-production}
+      MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-Mid-server-4MjfNoKyHg2hSZpfcHTq4KyW}
+      MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-Mid-client-v5rqlvwW-Gd8S6C_}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      api:
         condition: service_healthy
     networks:
       - udayana-network

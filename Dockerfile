@@ -3,6 +3,9 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
+ENV GOPROXY=https://proxy.golang.org,direct
+ENV GOTOOLCHAIN=local
+
 RUN apk add --no-cache ca-certificates tzdata git
 
 COPY go.mod go.sum ./
