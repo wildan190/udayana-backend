@@ -62,11 +62,24 @@ func New(db dataStore, cache cacheStore, jwtSecret []byte) *Store {
 }
 
 func (s *Store) Login(ctx context.Context, email, password string) (domain.User, string, error) {
-	credential, err := s.db.FindCredential(ctx, strings.TrimSpace(strings.ToLower(email)))
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(credential.PasswordHash), []byte(password)) != nil {
+	cleanEmail := strings.TrimSpace(strings.ToLower(email))
+	log.Printf("[LOGIN DEBUG] Mencoba login untuk email: %q", cleanEmail)
+	credential, err := s.db.FindCredential(ctx, cleanEmail)
+	if err != nil {
+		log.Printf("[LOGIN DEBUG] FindCredential gagal untuk email %q: %v", cleanEmail, err)
+		return domain.User{}, "", errors.New("email atau kata sandi tidak valid")
+	}
+	log.Printf("[LOGIN DEBUG] Credential ditemukan untuk ID=%d, Role=%s. Membandingkan password...", credential.User.ID, credential.User.Role)
+	if bcrypt.CompareHashAndPassword([]byte(credential.PasswordHash), []byte(password)) != nil {
+		log.Printf("[LOGIN DEBUG] Password mismatch untuk email %q", cleanEmail)
 		return domain.User{}, "", errors.New("email atau kata sandi tidak valid")
 	}
 	token, err := s.issueToken(credential.User)
+	if err != nil {
+		log.Printf("[LOGIN DEBUG] Gagal generate token untuk user %d: %v", credential.User.ID, err)
+		return domain.User{}, "", err
+	}
+	log.Printf("[LOGIN DEBUG] Login sukses untuk user %d (%s)", credential.User.ID, cleanEmail)
 	return credential.User, token, err
 }
 
