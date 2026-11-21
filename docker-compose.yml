@@ -53,12 +53,8 @@ services:
       MIDTRANS_ENV: ${MIDTRANS_ENV:-production}
       MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-Mid-server-4MjfNoKyHg2hSZpfcHTq4KuW}
       MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-Mid-client-v5rqlvwW-Gd8S6C_}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
-      AWS_BUCKET: ${AWS_BUCKET}
-      AWS_ENDPOINT: ${AWS_ENDPOINT}
-      AWS_USE_PATH_STYLE_ENDPOINT: ${AWS_USE_PATH_STYLE_ENDPOINT:-true}
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       mysql:
         condition: service_healthy
@@ -70,6 +66,7 @@ services:
 volumes:
   mysql_data:
   redis_data:
+  uploads_data:
 
 networks:
   udayana-network:

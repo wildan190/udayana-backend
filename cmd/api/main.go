@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"strconv"
 	"time"
 
 	"udayana-backend/internal/controller"
@@ -53,23 +52,9 @@ func main() {
 
 	cache := repository.NewRedisCache(redisClient)
 	appService := service.New(store, cache, []byte(env("JWT_SECRET", "development-only-change-me")))
-	var images storage.ProductImages
-	if hasS3Config() {
-		usePathStyle, err := strconv.ParseBool(env("AWS_USE_PATH_STYLE_ENDPOINT", "false"))
-		if err != nil {
-			log.Fatalf("AWS_USE_PATH_STYLE_ENDPOINT tidak valid: %v", err)
-		}
-		images, err = storage.NewS3ProductImages(
-			os.Getenv("AWS_ENDPOINT"),
-			os.Getenv("AWS_BUCKET"),
-			env("AWS_DEFAULT_REGION", os.Getenv("AWS_REGION")),
-			os.Getenv("AWS_ACCESS_KEY_ID"),
-			os.Getenv("AWS_SECRET_ACCESS_KEY"),
-			usePathStyle,
-		)
-		if err != nil {
-			log.Fatalf("configure S3 product images: %v", err)
-		}
+	images, err := storage.NewLocalProductImages("./uploads")
+	if err != nil {
+		log.Fatalf("configure local product images: %v", err)
 	}
 	handler := controller.New(appService, images)
 
