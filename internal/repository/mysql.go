@@ -78,6 +78,22 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			CONSTRAINT fk_withdrawals_admin FOREIGN KEY (admin_id) REFERENCES users(id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS user_addresses (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			user_id BIGINT NOT NULL,
+			label VARCHAR(50) NOT NULL DEFAULT 'Rumah',
+			recipient_name VARCHAR(120) NOT NULL DEFAULT '',
+			phone VARCHAR(40) NOT NULL DEFAULT '',
+			province VARCHAR(100) NOT NULL DEFAULT '',
+			city VARCHAR(100) NOT NULL DEFAULT '',
+			district VARCHAR(100) NOT NULL DEFAULT '',
+			subdistrict VARCHAR(100) NOT NULL DEFAULT '',
+			rt_rw VARCHAR(30) NOT NULL DEFAULT '',
+			postal_code VARCHAR(20) NOT NULL DEFAULT '',
+			address TEXT NOT NULL,
+			is_default BOOLEAN NOT NULL DEFAULT FALSE,
+			CONSTRAINT fk_addresses_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
 	}
 	for _, statement := range statements {
 		if _, err := r.db.ExecContext(ctx, statement); err != nil {
@@ -706,6 +722,78 @@ func (r *MySQL) ListWithdrawals(ctx context.Context) ([]domain.Withdrawal, error
 func (r *MySQL) PromoteAdmin(ctx context.Context, email string) error {
 	_, err := r.db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE email = ?", email)
 	return err
+}
+
+func (r *MySQL) ListAddresses(ctx context.Context, userID int64) ([]domain.Address, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, user_id, label, COALESCE(recipient_name,''), COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,''), is_default
+		FROM user_addresses WHERE user_id = ? ORDER BY is_default DESC, id DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	addresses := make([]domain.Address, 0)
+	for rows.Next() {
+		var a domain.Address
+		if err := rows.Scan(&a.ID, &a.UserID, &a.Label, &a.RecipientName, &a.Phone, &a.Province, &a.City, &a.District, &a.Subdistrict, &a.RTRW, &a.PostalCode, &a.Address, &a.IsDefault); err != nil {
+			return nil, err
+		}
+		addresses = append(addresses, a)
+	}
+	return addresses, rows.Err()
+}
+
+func (r *MySQL) CreateAddress(ctx context.Context, userID int64, a domain.Address) (domain.Address, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Address{}, err
+	}
+	defer tx.Rollback()
+
+	if a.IsDefault {
+		_, _ = tx.ExecContext(ctx, "UPDATE user_addresses SET is_default = FALSE WHERE user_id = ?", userID)
+	} else {
+		var count int64
+		_ = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM user_addresses WHERE user_id = ?", userID).Scan(&count)
+		if count == 0 {
+			a.IsDefault = true
+		}
+	}
+
+	result, err := tx.ExecContext(ctx, `INSERT INTO user_addresses
+		(user_id, label, recipient_name, phone, province, city, district, subdistrict, rt_rw, postal_code, address, is_default)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, a.Label, a.RecipientName, a.Phone, a.Province, a.City, a.District, a.Subdistrict, a.RTRW, a.PostalCode, a.Address, a.IsDefault)
+	if err != nil {
+		return domain.Address{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return domain.Address{}, err
+	}
+	a.ID = id
+	a.UserID = userID
+	return a, tx.Commit()
+}
+
+func (r *MySQL) DeleteAddress(ctx context.Context, userID, addressID int64) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM user_addresses WHERE id = ? AND user_id = ?", addressID, userID)
+	return err
+}
+
+func (r *MySQL) SetDefaultAddress(ctx context.Context, userID, addressID int64) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, "UPDATE user_addresses SET is_default = FALSE WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE user_addresses SET is_default = TRUE WHERE id = ? AND user_id = ?", addressID, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func IsNotFound(err error) bool {

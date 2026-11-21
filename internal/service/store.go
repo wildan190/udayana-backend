@@ -42,6 +42,10 @@ type dataStore interface {
 	ClearCart(context.Context, int64) error
 	CreateWithdrawal(context.Context, domain.Withdrawal) (domain.Withdrawal, error)
 	ListWithdrawals(context.Context) ([]domain.Withdrawal, error)
+	ListAddresses(context.Context, int64) ([]domain.Address, error)
+	CreateAddress(context.Context, int64, domain.Address) (domain.Address, error)
+	DeleteAddress(context.Context, int64, int64) error
+	SetDefaultAddress(context.Context, int64, int64) error
 	PromoteAdmin(context.Context, string) error
 	Report(context.Context, string, string) (domain.Report, error)
 }
@@ -654,4 +658,58 @@ func (s *Store) GetPaymentDetails(ctx context.Context, userID, orderID int64) (m
 			},
 		},
 	}, nil
+}
+
+func (s *Store) ListAddresses(ctx context.Context, userID int64) ([]domain.Address, error) {
+	if userID < 1 {
+		return nil, domain.ValidationError{Message: "ID pengguna tidak valid"}
+	}
+	return s.db.ListAddresses(ctx, userID)
+}
+
+func (s *Store) CreateAddress(ctx context.Context, userID int64, req requests.Address) (domain.Address, error) {
+	if userID < 1 {
+		return domain.Address{}, domain.ValidationError{Message: "ID pengguna tidak valid"}
+	}
+	addressText := strings.TrimSpace(req.Address)
+	recipientName := strings.TrimSpace(req.RecipientName)
+	phone := strings.TrimSpace(req.Phone)
+	city := strings.TrimSpace(req.City)
+	if addressText == "" || recipientName == "" || phone == "" || city == "" {
+		return domain.Address{}, domain.ValidationError{Message: "nama penerima, nomor HP, kota, dan alamat lengkap wajib diisi"}
+	}
+
+	label := strings.TrimSpace(req.Label)
+	if label == "" {
+		label = "Rumah"
+	}
+
+	a := domain.Address{
+		Label:         label,
+		RecipientName: recipientName,
+		Phone:         phone,
+		Province:      strings.TrimSpace(req.Province),
+		City:          city,
+		District:      strings.TrimSpace(req.District),
+		Subdistrict:   strings.TrimSpace(req.Subdistrict),
+		RTRW:          strings.TrimSpace(req.RTRW),
+		PostalCode:    strings.TrimSpace(req.PostalCode),
+		Address:       addressText,
+		IsDefault:     req.IsDefault,
+	}
+	return s.db.CreateAddress(ctx, userID, a)
+}
+
+func (s *Store) DeleteAddress(ctx context.Context, userID, addressID int64) error {
+	if userID < 1 || addressID < 1 {
+		return domain.ValidationError{Message: "ID tidak valid"}
+	}
+	return s.db.DeleteAddress(ctx, userID, addressID)
+}
+
+func (s *Store) SetDefaultAddress(ctx context.Context, userID, addressID int64) error {
+	if userID < 1 || addressID < 1 {
+		return domain.ValidationError{Message: "ID tidak valid"}
+	}
+	return s.db.SetDefaultAddress(ctx, userID, addressID)
 }

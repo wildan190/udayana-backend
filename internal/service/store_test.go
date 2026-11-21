@@ -249,6 +249,22 @@ func (*registrationTestStore) PromoteAdmin(context.Context, string) error {
 	return nil
 }
 
+func (*registrationTestStore) ListAddresses(context.Context, int64) ([]domain.Address, error) {
+	return nil, errors.New("unexpected ListAddresses call")
+}
+
+func (*registrationTestStore) CreateAddress(context.Context, int64, domain.Address) (domain.Address, error) {
+	return domain.Address{}, errors.New("unexpected CreateAddress call")
+}
+
+func (*registrationTestStore) DeleteAddress(context.Context, int64, int64) error {
+	return errors.New("unexpected DeleteAddress call")
+}
+
+func (*registrationTestStore) SetDefaultAddress(context.Context, int64, int64) error {
+	return errors.New("unexpected SetDefaultAddress call")
+}
+
 func signedToken(t *testing.T, secret []byte, claims map[string]any) string {
 	t.Helper()
 	payload, err := json.Marshal(claims)

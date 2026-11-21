@@ -29,6 +29,20 @@ type UpdateAddress struct {
 	Address     string `json:"address"`
 }
 
+type Address struct {
+	Label         string `json:"label"`
+	RecipientName string `json:"recipient_name"`
+	Phone         string `json:"phone"`
+	Province      string `json:"province"`
+	City          string `json:"city"`
+	District      string `json:"district"`
+	Subdistrict   string `json:"subdistrict"`
+	RTRW          string `json:"rt_rw"`
+	PostalCode    string `json:"postal_code"`
+	Address       string `json:"address"`
+	IsDefault     bool   `json:"is_default"`
+}
+
 type ChangePassword struct {
 	CurrentPassword string `json:"current_password"`
 	NewPassword     string `json:"new_password"`

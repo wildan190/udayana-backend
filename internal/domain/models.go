@@ -104,6 +104,22 @@ type Withdrawal struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+type Address struct {
+	ID            int64  `json:"id"`
+	UserID        int64  `json:"user_id"`
+	Label         string `json:"label"`
+	RecipientName string `json:"recipient_name"`
+	Phone         string `json:"phone"`
+	Province      string `json:"province"`
+	City          string `json:"city"`
+	District      string `json:"district"`
+	Subdistrict   string `json:"subdistrict"`
+	RTRW          string `json:"rt_rw"`
+	PostalCode    string `json:"postal_code"`
+	Address       string `json:"address"`
+	IsDefault     bool   `json:"is_default"`
+}
+
 type CategoryReport struct {
 	Category string `json:"category"`
 	Quantity int64  `json:"quantity"`

@@ -40,6 +40,10 @@ func (c *Controller) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login", c.login)
 	mux.HandleFunc("POST /api/v1/auth/register", c.registerBuyer)
 	mux.Handle("PUT /api/v1/buyer/address", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.updateBuyerAddress)))
+	mux.Handle("GET /api/v1/buyer/addresses", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.listAddresses)))
+	mux.Handle("POST /api/v1/buyer/addresses", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.createAddress)))
+	mux.Handle("DELETE /api/v1/buyer/addresses/{id}", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.deleteAddress)))
+	mux.Handle("PATCH /api/v1/buyer/addresses/{id}/default", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.setDefaultAddress)))
 	mux.Handle("PUT /api/v1/buyer/password", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.changePassword)))
 	mux.Handle("GET /api/v1/buyer/cart", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.getCart)))
 	mux.Handle("PUT /api/v1/buyer/cart", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.saveCart)))
@@ -522,6 +526,56 @@ func (c *Controller) listWithdrawals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"withdrawals": withdrawals})
+}
+
+func (c *Controller) listAddresses(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.Identity(r)
+	addresses, err := c.store.ListAddresses(r.Context(), userID)
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"addresses": addresses})
+}
+
+func (c *Controller) createAddress(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.Identity(r)
+	var request requests.Address
+	if !decode(w, r, &request) {
+		return
+	}
+	address, err := c.store.CreateAddress(r.Context(), userID, request)
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, address)
+}
+
+func (c *Controller) deleteAddress(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.Identity(r)
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := c.store.DeleteAddress(r.Context(), userID, id); err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (c *Controller) setDefaultAddress(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.Identity(r)
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := c.store.SetDefaultAddress(r.Context(), userID, id); err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (c *Controller) paymentDetails(w http.ResponseWriter, r *http.Request) {
