@@ -796,6 +796,11 @@ func writeOperationError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "data tidak ditemukan"})
 		return
 	}
+	if strings.Contains(err.Error(), "midtrans") || strings.Contains(err.Error(), "Payment channel") {
+		log.Printf("[MIDTRANS ERROR] %v", err)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Metode pembayaran Midtrans belum diaktifkan di dasbor produksi Midtrans. Silakan aktifkan metode tersebut atau gunakan COD."})
+		return
+	}
 	log.Printf("[SERVER ERROR] Operasi gagal: %v", err)
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "terjadi kesalahan pada server: " + err.Error()})
 }
