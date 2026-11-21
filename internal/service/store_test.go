@@ -185,7 +185,7 @@ func (*registrationTestStore) DeactivateProduct(context.Context, int64) error {
 	return errors.New("unexpected DeactivateProduct call")
 }
 
-func (*registrationTestStore) CreateOrder(context.Context, int64, []domain.OrderItem, string, string) (domain.Order, error) {
+func (*registrationTestStore) CreateOrder(context.Context, int64, []domain.OrderItem, string, string, int64, float64) (domain.Order, error) {
 	return domain.Order{}, errors.New("unexpected CreateOrder call")
 }
 
@@ -195,6 +195,10 @@ func (*registrationTestStore) ListOrders(context.Context, int64, bool) ([]domain
 
 func (*registrationTestStore) UpdateOrderStatus(context.Context, int64, string) error {
 	return errors.New("unexpected UpdateOrderStatus call")
+}
+
+func (*registrationTestStore) UpdateOrderMidtransResponse(context.Context, int64, []byte) error {
+	return errors.New("unexpected UpdateOrderMidtransResponse call")
 }
 
 func (*registrationTestStore) ListCustomers(context.Context) ([]domain.User, error) {
@@ -263,6 +267,50 @@ func (*registrationTestStore) DeleteAddress(context.Context, int64, int64) error
 
 func (*registrationTestStore) SetDefaultAddress(context.Context, int64, int64) error {
 	return errors.New("unexpected SetDefaultAddress call")
+}
+
+func (*registrationTestStore) ShippingSettings(context.Context) (domain.ShippingSettings, error) {
+	return domain.ShippingSettings{DefaultFeeCents: 1000000}, nil
+}
+
+func (*registrationTestStore) UpdateShippingSettings(context.Context, domain.ShippingSettings) error {
+	return errors.New("unexpected UpdateShippingSettings call")
+}
+
+func (*registrationTestStore) ShippingZones(context.Context) ([]domain.ShippingZone, error) {
+	return nil, errors.New("unexpected ShippingZones call")
+}
+
+func (*registrationTestStore) CreateShippingZone(context.Context, domain.ShippingZone) (domain.ShippingZone, error) {
+	return domain.ShippingZone{}, errors.New("unexpected CreateShippingZone call")
+}
+
+func (*registrationTestStore) UpdateShippingZone(context.Context, int64, domain.ShippingZone) (domain.ShippingZone, error) {
+	return domain.ShippingZone{}, errors.New("unexpected UpdateShippingZone call")
+}
+
+func (*registrationTestStore) DeleteShippingZone(context.Context, int64) error {
+	return errors.New("unexpected DeleteShippingZone call")
+}
+
+func (*registrationTestStore) ShippingAreas(context.Context) ([]domain.ShippingArea, error) {
+	return nil, errors.New("unexpected ShippingAreas call")
+}
+
+func (*registrationTestStore) CreateShippingArea(context.Context, domain.ShippingArea) (domain.ShippingArea, error) {
+	return domain.ShippingArea{}, errors.New("unexpected CreateShippingArea call")
+}
+
+func (*registrationTestStore) UpdateShippingArea(context.Context, int64, domain.ShippingArea) (domain.ShippingArea, error) {
+	return domain.ShippingArea{}, errors.New("unexpected UpdateShippingArea call")
+}
+
+func (*registrationTestStore) DeleteShippingArea(context.Context, int64) error {
+	return errors.New("unexpected DeleteShippingArea call")
+}
+
+func (*registrationTestStore) FindShippingArea(context.Context, string, string) (domain.ShippingArea, error) {
+	return domain.ShippingArea{}, errors.New("unexpected FindShippingArea call")
 }
 
 func signedToken(t *testing.T, secret []byte, claims map[string]any) string {
@@ -339,7 +387,7 @@ func TestCheckoutSortsAndCombinesProductIDs(t *testing.T) {
 		{ProductID: 9, Quantity: 1},
 		{ProductID: 3, Quantity: 2},
 		{ProductID: 9, Quantity: 2},
-	}, "COD", "Jl. Melati No. 12, Kel. Denpasar, Kec. Denpasar Barat")
+	}, "COD", "Jl. Melati No. 12, Kel. Denpasar, Kec. Denpasar Barat", "Denpasar", "Denpasar Barat")
 	if err != nil {
 		t.Fatalf("Checkout() error = %v", err)
 	}
@@ -351,6 +399,68 @@ func TestCheckoutSortsAndCombinesProductIDs(t *testing.T) {
 	}
 	if cache.version != 1 {
 		t.Fatalf("cache generation after checkout = %d, want 1", cache.version)
+	}
+}
+
+type shippingTestStore struct {
+	registrationTestStore
+	settings domain.ShippingSettings
+	area     domain.ShippingArea
+	zones    []domain.ShippingZone
+	findErr  error
+}
+
+func (s *shippingTestStore) ShippingSettings(context.Context) (domain.ShippingSettings, error) {
+	return s.settings, nil
+}
+
+func (s *shippingTestStore) ShippingZones(context.Context) ([]domain.ShippingZone, error) {
+	return s.zones, nil
+}
+
+func (s *shippingTestStore) FindShippingArea(context.Context, string, string) (domain.ShippingArea, error) {
+	if s.findErr != nil {
+		return domain.ShippingArea{}, s.findErr
+	}
+	return s.area, nil
+}
+
+func TestShippingQuoteMatchesZoneByDistance(t *testing.T) {
+	db := &shippingTestStore{
+		settings: domain.ShippingSettings{OriginLatitude: -8.65, OriginLongitude: 115.2167},
+		area:     domain.ShippingArea{City: "Denpasar", District: "Denpasar Barat", Latitude: -8.67, Longitude: 115.19},
+		zones: []domain.ShippingZone{
+			{Name: "Dalam 5 km", MinKm: 0, MaxKm: 5, FeeCents: 1000000},
+			{Name: "5 - 10 km", MinKm: 5, MaxKm: 10, FeeCents: 1500000},
+		},
+	}
+	store := New(db, nil, nil)
+
+	quote := store.ShippingQuote(context.Background(), "Denpasar", "Denpasar Barat")
+	if !quote.InCoverage || quote.FeeCents != 1000000 {
+		t.Fatalf("ShippingQuote() = %#v, want zone fee 1000000 and in coverage", quote)
+	}
+	if quote.DistanceKm <= 0 || quote.DistanceKm >= 5 {
+		t.Fatalf("ShippingQuote() distance = %v, want within (0, 5) km", quote.DistanceKm)
+	}
+
+	db.findErr = errors.New("wilayah tidak ditemukan")
+	fallback := store.ShippingQuote(context.Background(), "Kota Tidak Dikenal", "")
+	if fallback.FeeCents != 1000000 || fallback.InCoverage || fallback.DistanceKm != 0 {
+		t.Fatalf("ShippingQuote() fallback = %#v, want default fee without coverage", fallback)
+	}
+}
+
+func TestShippingQuoteUsesAreaFeeWithoutCoordinates(t *testing.T) {
+	db := &shippingTestStore{
+		settings: domain.ShippingSettings{DefaultFeeCents: 1000000},
+		area:     domain.ShippingArea{City: "Denpasar", District: "Denpasar Barat", FeeCents: 1500000},
+	}
+	store := New(db, nil, nil)
+
+	quote := store.ShippingQuote(context.Background(), "Denpasar", "Denpasar Barat")
+	if !quote.InCoverage || quote.FeeCents != 1500000 || quote.DistanceKm != 0 {
+		t.Fatalf("ShippingQuote() = %#v, want area fee 1500000 without distance", quote)
 	}
 }
 
@@ -406,7 +516,7 @@ type checkoutTestStore struct {
 	items []domain.OrderItem
 }
 
-func (s *checkoutTestStore) CreateOrder(_ context.Context, _ int64, items []domain.OrderItem, _, _ string) (domain.Order, error) {
+func (s *checkoutTestStore) CreateOrder(_ context.Context, _ int64, items []domain.OrderItem, _, _ string, _ int64, _ float64) (domain.Order, error) {
 	s.items = append([]domain.OrderItem(nil), items...)
 	return domain.Order{}, nil
 }

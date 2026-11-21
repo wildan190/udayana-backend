@@ -32,6 +32,24 @@ func NewMidtransClient() *MidtransClient {
 	}
 }
 
+// midtransOrderID membangun order_id yang stabil, dipakai konsisten baik saat
+// membuat charge (POST /charge) maupun saat memeriksa status (GET /{order_id}/status).
+func midtransOrderID(orderID int64) string {
+	return fmt.Sprintf("ORDER-%d", orderID)
+}
+
+// statusCode mengambil status_code dari response Midtrans (string).
+func statusCode(result map[string]any) string {
+	code, _ := result["status_code"].(string)
+	return code
+}
+
+// isApprovedStatus menandakan transaksi Midtrans berhasil dibuat/ditemukan.
+// Charge sukses memakai 201, sedangkan endpoint status memakai 200/201.
+func isApprovedStatus(code string) bool {
+	return code == "200" || code == "201"
+}
+
 func (m *MidtransClient) Charge(ctx context.Context, order domain.Order, customer domain.User) (map[string]any, error) {
 	baseURL := "https://api.sandbox.midtrans.com/v2/charge"
 	if m.isProduction {
@@ -40,7 +58,7 @@ func (m *MidtransClient) Charge(ctx context.Context, order domain.Order, custome
 
 	payload := map[string]any{
 		"transaction_details": map[string]any{
-			"order_id":     fmt.Sprintf("ORDER-%d-%d", order.ID, time.Now().Unix()),
+			"order_id":     midtransOrderID(order.ID),
 			"gross_amount": order.TotalCents / 100,
 		},
 		"customer_details": map[string]any{
@@ -50,14 +68,25 @@ func (m *MidtransClient) Charge(ctx context.Context, order domain.Order, custome
 		},
 	}
 
-	itemDetails := make([]map[string]any, len(order.Items))
-	for i, item := range order.Items {
-		itemDetails[i] = map[string]any{
+	// item_details wajib berjumlah sama dengan gross_amount. Karena total
+	// pesanan sudah termasuk ongkos kirim, ongkir dimasukkan sebagai item
+	// tersendiri agar Midtrans tidak menolak transaksi.
+	itemDetails := make([]map[string]any, 0, len(order.Items)+1)
+	for _, item := range order.Items {
+		itemDetails = append(itemDetails, map[string]any{
 			"id":       fmt.Sprintf("%d", item.ProductID),
 			"price":    item.PriceCents / 100,
 			"quantity": item.Quantity,
 			"name":     item.ProductName,
-		}
+		})
+	}
+	if order.ShippingFeeCents > 0 {
+		itemDetails = append(itemDetails, map[string]any{
+			"id":       "SHIPPING",
+			"price":    order.ShippingFeeCents / 100,
+			"quantity": 1,
+			"name":     "Ongkos Kirim",
+		})
 	}
 	payload["item_details"] = itemDetails
 
@@ -99,13 +128,17 @@ func (m *MidtransClient) Charge(ctx context.Context, order domain.Order, custome
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
+	if !isApprovedStatus(statusCode(result)) {
+		message, _ := result["status_message"].(string)
+		return result, fmt.Errorf("midtrans menolak charge (status %s): %s", statusCode(result), message)
+	}
 	return result, nil
 }
 
 func (m *MidtransClient) CheckStatus(ctx context.Context, orderID int64) (map[string]any, error) {
-	baseURL := fmt.Sprintf("https://api.sandbox.midtrans.com/v2/ORDER-%d/status", orderID)
+	baseURL := fmt.Sprintf("https://api.sandbox.midtrans.com/v2/%s/status", midtransOrderID(orderID))
 	if m.isProduction {
-		baseURL = fmt.Sprintf("https://api.midtrans.com/v2/ORDER-%d/status", orderID)
+		baseURL = fmt.Sprintf("https://api.midtrans.com/v2/%s/status", midtransOrderID(orderID))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", baseURL, nil)
@@ -125,6 +158,8 @@ func (m *MidtransClient) CheckStatus(ctx context.Context, orderID int64) (map[st
 	defer resp.Body.Close()
 
 	var result map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }

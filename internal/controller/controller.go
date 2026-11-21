@@ -56,6 +56,7 @@ func (c *Controller) Routes() http.Handler {
 	mux.Handle("POST /api/v1/orders", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.checkout)))
 	mux.Handle("GET /api/v1/orders", middleware.RequireRole(c.store, "buyer", "admin")(http.HandlerFunc(c.orders)))
 	mux.Handle("GET /api/v1/buyer/orders/{id}/payment", middleware.RequireRole(c.store, "buyer", "admin")(http.HandlerFunc(c.paymentDetails)))
+	mux.Handle("GET /api/v1/shipping/quote", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.shippingQuote)))
 
 	mux.Handle("GET /api/v1/admin/products", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.adminProducts)))
 	mux.Handle("POST /api/v1/admin/products", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.createProduct)))
@@ -70,6 +71,14 @@ func (c *Controller) Routes() http.Handler {
 	mux.Handle("GET /api/v1/admin/reports", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.report)))
 	mux.Handle("POST /api/v1/admin/withdraw", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.createWithdrawal)))
 	mux.Handle("GET /api/v1/admin/withdrawals", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.listWithdrawals)))
+	mux.Handle("GET /api/v1/admin/shipping", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.adminShippingConfig)))
+	mux.Handle("PUT /api/v1/admin/shipping/settings", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.adminUpdateShippingSettings)))
+	mux.Handle("POST /api/v1/admin/shipping/zones", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.adminCreateShippingZone)))
+	mux.Handle("PUT /api/v1/admin/shipping/zones/{id}", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.adminUpdateShippingZone)))
+	mux.Handle("DELETE /api/v1/admin/shipping/zones/{id}", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.adminDeleteShippingZone)))
+	mux.Handle("POST /api/v1/admin/shipping/areas", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.adminCreateShippingArea)))
+	mux.Handle("PUT /api/v1/admin/shipping/areas/{id}", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.adminUpdateShippingArea)))
+	mux.Handle("DELETE /api/v1/admin/shipping/areas/{id}", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.adminDeleteShippingArea)))
 	return cors(mux)
 }
 
@@ -312,12 +321,123 @@ func (c *Controller) checkout(w http.ResponseWriter, r *http.Request) {
 	for i, item := range request.Items {
 		items[i] = domain.OrderItem{ProductID: item.ProductID, Quantity: item.Quantity}
 	}
-	order, err := c.store.Checkout(r.Context(), userID, items, request.PaymentMethod, request.ShippingAddress)
+	order, err := c.store.Checkout(r.Context(), userID, items, request.PaymentMethod, request.ShippingAddress, request.City, request.District)
 	if err != nil {
 		writeOperationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, order)
+}
+
+func (c *Controller) shippingQuote(w http.ResponseWriter, r *http.Request) {
+	quote := c.store.ShippingQuote(r.Context(), r.URL.Query().Get("city"), r.URL.Query().Get("district"))
+	writeJSON(w, http.StatusOK, quote)
+}
+
+func (c *Controller) adminShippingConfig(w http.ResponseWriter, r *http.Request) {
+	config, err := c.store.ShippingConfig(r.Context())
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, config)
+}
+
+func (c *Controller) adminUpdateShippingSettings(w http.ResponseWriter, r *http.Request) {
+	var request requests.ShippingSettings
+	if !decode(w, r, &request) {
+		return
+	}
+	settings, err := c.store.UpdateShippingSettings(r.Context(), request)
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+func (c *Controller) adminCreateShippingZone(w http.ResponseWriter, r *http.Request) {
+	var request requests.ShippingZone
+	if !decode(w, r, &request) {
+		return
+	}
+	zone, err := c.store.SaveShippingZone(r.Context(), 0, request)
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, zone)
+}
+
+func (c *Controller) adminUpdateShippingZone(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var request requests.ShippingZone
+	if !decode(w, r, &request) {
+		return
+	}
+	zone, err := c.store.SaveShippingZone(r.Context(), id, request)
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, zone)
+}
+
+func (c *Controller) adminDeleteShippingZone(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := c.store.DeleteShippingZone(r.Context(), id); err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (c *Controller) adminCreateShippingArea(w http.ResponseWriter, r *http.Request) {
+	var request requests.ShippingArea
+	if !decode(w, r, &request) {
+		return
+	}
+	area, err := c.store.SaveShippingArea(r.Context(), 0, request)
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, area)
+}
+
+func (c *Controller) adminUpdateShippingArea(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var request requests.ShippingArea
+	if !decode(w, r, &request) {
+		return
+	}
+	area, err := c.store.SaveShippingArea(r.Context(), id, request)
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, area)
+}
+
+func (c *Controller) adminDeleteShippingArea(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := c.store.DeleteShippingArea(r.Context(), id); err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (c *Controller) orders(w http.ResponseWriter, r *http.Request) {

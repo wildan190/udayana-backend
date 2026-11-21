@@ -71,11 +71,56 @@ type Order struct {
 	Customer         User           `json:"customer,omitempty"`
 	Items            []OrderItem    `json:"items"`
 	TotalCents       int64          `json:"total_cents"`
+	ShippingFeeCents int64          `json:"shipping_fee_cents"`
+	DistanceKm       float64        `json:"distance_km"`
 	PaymentMethod    string         `json:"payment_method"`
 	ShippingAddress  string         `json:"shipping_address"`
 	MidtransResponse map[string]any `json:"midtrans_response,omitempty"`
 	Status           string         `json:"status"`
 	CreatedAt        time.Time      `json:"created_at"`
+}
+
+// ShippingSettings menyimpan titik asal pengiriman (toko) dan tarif default.
+type ShippingSettings struct {
+	OriginLatitude  float64 `json:"origin_latitude"`
+	OriginLongitude float64 `json:"origin_longitude"`
+	DefaultFeeCents int64   `json:"default_fee_cents"`
+}
+
+// ShippingZone adalah satu tier tarif ongkir berdasarkan rentang jarak (km).
+type ShippingZone struct {
+	ID       int64   `json:"id"`
+	Name     string  `json:"name"`
+	MinKm    float64 `json:"min_km"`
+	MaxKm    float64 `json:"max_km"`
+	FeeCents int64   `json:"fee_cents"`
+}
+
+// ShippingArea adalah wilayah tujuan. Tarif bisa langsung diisi lewat FeeCents
+// (tanpa perlu koordinat); koordinat hanya dipakai bila memakai mode zona jarak.
+type ShippingArea struct {
+	ID        int64   `json:"id"`
+	City      string  `json:"city"`
+	District  string  `json:"district"`
+	FeeCents  int64   `json:"fee_cents"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
+// ShippingConfig adalah seluruh konfigurasi ongkir yang dikelola admin.
+type ShippingConfig struct {
+	Settings ShippingSettings `json:"settings"`
+	Zones    []ShippingZone   `json:"zones"`
+	Areas    []ShippingArea   `json:"areas"`
+}
+
+// ShippingQuote adalah hasil perhitungan ongkir untuk satu alamat tujuan.
+type ShippingQuote struct {
+	City       string  `json:"city"`
+	District   string  `json:"district"`
+	DistanceKm float64 `json:"distance_km"`
+	FeeCents   int64   `json:"fee_cents"`
+	InCoverage bool    `json:"in_coverage"`
 }
 
 type Report struct {

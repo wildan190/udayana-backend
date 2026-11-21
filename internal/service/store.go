@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/mail"
 	"sort"
 	"strconv"
@@ -28,9 +29,10 @@ type dataStore interface {
 	CreateProduct(context.Context, domain.Product) (domain.Product, error)
 	UpdateProduct(context.Context, int64, domain.Product) (domain.Product, error)
 	DeactivateProduct(context.Context, int64) error
-	CreateOrder(context.Context, int64, []domain.OrderItem, string, string) (domain.Order, error)
+	CreateOrder(context.Context, int64, []domain.OrderItem, string, string, int64, float64) (domain.Order, error)
 	ListOrders(context.Context, int64, bool) ([]domain.Order, error)
 	UpdateOrderStatus(context.Context, int64, string) error
+	UpdateOrderMidtransResponse(context.Context, int64, []byte) error
 	ListCustomers(context.Context) ([]domain.User, error)
 	UpdateCustomer(context.Context, int64, domain.User) (domain.User, error)
 	UpdateUserAddress(context.Context, int64, domain.User) (domain.User, error)
@@ -48,6 +50,17 @@ type dataStore interface {
 	SetDefaultAddress(context.Context, int64, int64) error
 	PromoteAdmin(context.Context, string) error
 	Report(context.Context, string, string) (domain.Report, error)
+	ShippingSettings(context.Context) (domain.ShippingSettings, error)
+	UpdateShippingSettings(context.Context, domain.ShippingSettings) error
+	ShippingZones(context.Context) ([]domain.ShippingZone, error)
+	CreateShippingZone(context.Context, domain.ShippingZone) (domain.ShippingZone, error)
+	UpdateShippingZone(context.Context, int64, domain.ShippingZone) (domain.ShippingZone, error)
+	DeleteShippingZone(context.Context, int64) error
+	ShippingAreas(context.Context) ([]domain.ShippingArea, error)
+	CreateShippingArea(context.Context, domain.ShippingArea) (domain.ShippingArea, error)
+	UpdateShippingArea(context.Context, int64, domain.ShippingArea) (domain.ShippingArea, error)
+	DeleteShippingArea(context.Context, int64) error
+	FindShippingArea(context.Context, string, string) (domain.ShippingArea, error)
 }
 
 type cacheStore interface {
@@ -302,7 +315,7 @@ func (s *Store) DeactivateProduct(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (s *Store) Checkout(ctx context.Context, userID int64, items []domain.OrderItem, paymentMethod, shippingAddress string) (domain.Order, error) {
+func (s *Store) Checkout(ctx context.Context, userID int64, items []domain.OrderItem, paymentMethod, shippingAddress, city, district string) (domain.Order, error) {
 	if len(items) == 0 || len(items) > 100 {
 		return domain.Order{}, domain.ValidationError{Message: "keranjang harus berisi 1 sampai 100 produk"}
 	}
@@ -330,7 +343,8 @@ func (s *Store) Checkout(ctx context.Context, userID int64, items []domain.Order
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].ProductID < items[j].ProductID
 	})
-	order, err := s.db.CreateOrder(ctx, userID, items, paymentMethod, shippingAddress)
+	quote := s.ShippingQuote(ctx, city, district)
+	order, err := s.db.CreateOrder(ctx, userID, items, paymentMethod, shippingAddress, quote.FeeCents, quote.DistanceKm)
 	if err != nil {
 		return domain.Order{}, err
 	}
@@ -345,6 +359,7 @@ func (s *Store) Checkout(ctx context.Context, userID int64, items []domain.Order
 				if respBytes, err := json.Marshal(resp); err == nil {
 					cacheKey := fmt.Sprintf("order:payment:%d", order.ID)
 					_ = s.cache.Set(ctx, cacheKey, respBytes, 24*time.Hour)
+					_ = s.db.UpdateOrderMidtransResponse(ctx, order.ID, respBytes)
 				}
 			} else {
 				log.Printf("[MIDTRANS ERROR] Charge gagal: %v", err)
@@ -603,60 +618,61 @@ func (s *Store) GetPaymentDetails(ctx context.Context, userID, orderID int64) (m
 		return nil, domain.ValidationError{Message: "ID pesanan tidak valid"}
 	}
 
-	// Check order status in MySQL database first
+	// Periksa status pesanan dan info pembayaran yang tersimpan di database.
+	var persisted map[string]any
 	orders, err := s.db.ListOrders(ctx, orderID, true)
 	if err == nil {
 		for _, o := range orders {
-			if o.ID == orderID {
-				if o.Status == "processing" || o.Status == "completed" || o.Status == "shipping" {
-					return map[string]any{
-						"transaction_status": "settlement",
-						"status_message":     "Pembayaran Berhasil (Lunas)",
-					}, nil
-				}
-				if o.Status == "cancelled" {
-					return map[string]any{
-						"transaction_status": "expire",
-						"status_message":     "Pesanan Dibatalkan",
-					}, nil
-				}
-				break
+			if o.ID != orderID {
+				continue
 			}
+			switch o.Status {
+			case "processing", "completed", "shipping":
+				return map[string]any{
+					"transaction_status": "settlement",
+					"status_message":     "Pembayaran Berhasil (Lunas)",
+				}, nil
+			case "cancelled":
+				return map[string]any{
+					"transaction_status": "expire",
+					"status_message":     "Pesanan Dibatalkan",
+				}, nil
+			}
+			if len(o.MidtransResponse) > 0 {
+				persisted = o.MidtransResponse
+			}
+			break
 		}
 	}
 
+	// Selaraskan status terbaru dari Midtrans (terbayar / kedaluwarsa).
+	midtrans := NewMidtransClient()
+	if statusResp, err := midtrans.CheckStatus(ctx, orderID); err == nil && isApprovedStatus(statusCode(statusResp)) {
+		switch status, _ := statusResp["transaction_status"].(string); status {
+		case "settlement", "capture":
+			_ = s.db.UpdateOrderStatus(ctx, orderID, "processing")
+			return statusResp, nil
+		case "deny", "cancel", "expire":
+			_ = s.db.UpdateOrderStatus(ctx, orderID, "cancelled")
+			return statusResp, nil
+		}
+	}
+
+	// Info pembayaran (nomor VA / QRIS) dari response charge yang tersimpan.
+	if len(persisted) > 0 {
+		return persisted, nil
+	}
 	cacheKey := fmt.Sprintf("order:payment:%d", orderID)
-	cached, err := s.cache.Get(ctx, cacheKey)
-	if err == nil && len(cached) > 0 {
+	if cached, err := s.cache.Get(ctx, cacheKey); err == nil && len(cached) > 0 {
 		var resp map[string]any
 		if json.Unmarshal(cached, &resp) == nil {
 			return resp, nil
 		}
 	}
 
-	midtrans := NewMidtransClient()
-	statusResp, err := midtrans.CheckStatus(ctx, orderID)
-	if err == nil && statusResp != nil && statusResp["status_code"] == "200" {
-		transactionStatus, _ := statusResp["transaction_status"].(string)
-		if transactionStatus == "settlement" || transactionStatus == "capture" {
-			_ = s.db.UpdateOrderStatus(ctx, orderID, "processing")
-		} else if transactionStatus == "deny" || transactionStatus == "cancel" || transactionStatus == "expire" {
-			_ = s.db.UpdateOrderStatus(ctx, orderID, "cancelled")
-		}
-		if respBytes, err := json.Marshal(statusResp); err == nil {
-			_ = s.cache.Set(ctx, cacheKey, respBytes, 24*time.Hour)
-		}
-		return statusResp, nil
-	}
-
 	return map[string]any{
-		"status_message": "Menunggu pembayaran",
-		"va_numbers": []map[string]any{
-			{
-				"bank":      "bca",
-				"va_number": fmt.Sprintf("828000%08d", orderID),
-			},
-		},
+		"transaction_status": "pending",
+		"status_message":     "Menunggu pembayaran",
 	}, nil
 }
 
@@ -712,4 +728,187 @@ func (s *Store) SetDefaultAddress(ctx context.Context, userID, addressID int64) 
 		return domain.ValidationError{Message: "ID tidak valid"}
 	}
 	return s.db.SetDefaultAddress(ctx, userID, addressID)
+}
+
+// defaultShippingFeeCents adalah ongkos kirim bawaan (Rp 10.000) yang dipakai
+// saat wilayah tujuan belum terdaftar atau konfigurasi belum diatur admin.
+const defaultShippingFeeCents int64 = 1000000
+
+func (s *Store) shippingSettings(ctx context.Context) (domain.ShippingSettings, error) {
+	settings, err := s.db.ShippingSettings(ctx)
+	if err != nil {
+		return domain.ShippingSettings{}, err
+	}
+	if settings.DefaultFeeCents <= 0 {
+		settings.DefaultFeeCents = defaultShippingFeeCents
+	}
+	return settings, nil
+}
+
+// ShippingConfig mengembalikan seluruh konfigurasi ongkos kirim untuk admin.
+func (s *Store) ShippingConfig(ctx context.Context) (domain.ShippingConfig, error) {
+	settings, err := s.shippingSettings(ctx)
+	if err != nil {
+		return domain.ShippingConfig{}, err
+	}
+	zones, err := s.db.ShippingZones(ctx)
+	if err != nil {
+		return domain.ShippingConfig{}, err
+	}
+	areas, err := s.db.ShippingAreas(ctx)
+	if err != nil {
+		return domain.ShippingConfig{}, err
+	}
+	return domain.ShippingConfig{Settings: settings, Zones: zones, Areas: areas}, nil
+}
+
+func (s *Store) UpdateShippingSettings(ctx context.Context, req requests.ShippingSettings) (domain.ShippingSettings, error) {
+	if req.OriginLatitude < -90 || req.OriginLatitude > 90 ||
+		req.OriginLongitude < -180 || req.OriginLongitude > 180 {
+		return domain.ShippingSettings{}, domain.ValidationError{Message: "koordinat titik asal tidak valid"}
+	}
+	if req.DefaultFeeCents < 0 {
+		return domain.ShippingSettings{}, domain.ValidationError{Message: "ongkos kirim default tidak boleh negatif"}
+	}
+	settings := domain.ShippingSettings{
+		OriginLatitude:  req.OriginLatitude,
+		OriginLongitude: req.OriginLongitude,
+		DefaultFeeCents: req.DefaultFeeCents,
+	}
+	if settings.DefaultFeeCents == 0 {
+		settings.DefaultFeeCents = defaultShippingFeeCents
+	}
+	if err := s.db.UpdateShippingSettings(ctx, settings); err != nil {
+		return domain.ShippingSettings{}, err
+	}
+	return settings, nil
+}
+
+// ShippingQuote menghitung ongkos kirim dari titik asal ke kecamatan tujuan
+// memakai rumus Haversine, lalu mencocokkannya ke zona jarak. Bila wilayah
+// tujuan belum terdaftar atau koordinat asal belum diisi admin, ongkos kirim
+// default dipakai agar pembeli tidak pernah kekurangan bayar.
+func (s *Store) ShippingQuote(ctx context.Context, city, district string) domain.ShippingQuote {
+	quote := domain.ShippingQuote{
+		City:     strings.TrimSpace(city),
+		District: strings.TrimSpace(district),
+		FeeCents: defaultShippingFeeCents,
+	}
+	settings, err := s.shippingSettings(ctx)
+	if err != nil {
+		return quote
+	}
+	quote.FeeCents = settings.DefaultFeeCents
+
+	area, err := s.db.FindShippingArea(ctx, quote.City, quote.District)
+	if err != nil {
+		return quote
+	}
+	quote.City, quote.District = area.City, area.District
+
+	// Prioritas 1: tarif khusus wilayah (tanpa perlu koordinat sama sekali).
+	if area.FeeCents > 0 {
+		quote.FeeCents = area.FeeCents
+		quote.InCoverage = true
+		return quote
+	}
+
+	// Prioritas 2: mode zona jarak (butuh koordinat asal dan wilayah tujuan).
+	if settings.OriginLatitude == 0 && settings.OriginLongitude == 0 {
+		return quote
+	}
+	if area.Latitude == 0 && area.Longitude == 0 {
+		return quote
+	}
+	quote.DistanceKm = math.Round(haversineKm(settings.OriginLatitude, settings.OriginLongitude, area.Latitude, area.Longitude)*10) / 10
+	zones, err := s.db.ShippingZones(ctx)
+	if err != nil {
+		return quote
+	}
+	for _, zone := range zones {
+		if quote.DistanceKm >= zone.MinKm && quote.DistanceKm < zone.MaxKm {
+			quote.FeeCents = zone.FeeCents
+			quote.InCoverage = true
+			return quote
+		}
+	}
+	return quote
+}
+
+func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthRadiusKm = 6371.0
+	toRad := func(degrees float64) float64 { return degrees * math.Pi / 180 }
+	dLat := toRad(lat2 - lat1)
+	dLon := toRad(lon2 - lon1)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(toRad(lat1))*math.Cos(toRad(lat2))*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return earthRadiusKm * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
+func (s *Store) SaveShippingZone(ctx context.Context, id int64, req requests.ShippingZone) (domain.ShippingZone, error) {
+	zone := domain.ShippingZone{
+		Name:     strings.TrimSpace(req.Name),
+		MinKm:    req.MinKm,
+		MaxKm:    req.MaxKm,
+		FeeCents: req.FeeCents,
+	}
+	if zone.Name == "" || len(zone.Name) > 100 {
+		return domain.ShippingZone{}, domain.ValidationError{Message: "nama zona wajib diisi maksimal 100 karakter"}
+	}
+	if zone.MinKm < 0 || zone.MaxKm <= zone.MinKm {
+		return domain.ShippingZone{}, domain.ValidationError{Message: "rentang jarak zona tidak valid"}
+	}
+	if zone.FeeCents < 0 {
+		return domain.ShippingZone{}, domain.ValidationError{Message: "ongkos kirim zona tidak boleh negatif"}
+	}
+	if id == 0 {
+		return s.db.CreateShippingZone(ctx, zone)
+	}
+	if id < 1 {
+		return domain.ShippingZone{}, domain.ValidationError{Message: "ID zona tidak valid"}
+	}
+	return s.db.UpdateShippingZone(ctx, id, zone)
+}
+
+func (s *Store) DeleteShippingZone(ctx context.Context, id int64) error {
+	if id < 1 {
+		return domain.ValidationError{Message: "ID zona tidak valid"}
+	}
+	return s.db.DeleteShippingZone(ctx, id)
+}
+
+func (s *Store) SaveShippingArea(ctx context.Context, id int64, req requests.ShippingArea) (domain.ShippingArea, error) {
+	area := domain.ShippingArea{
+		City:      strings.TrimSpace(req.City),
+		District:  strings.TrimSpace(req.District),
+		FeeCents:  req.FeeCents,
+		Latitude:  req.Latitude,
+		Longitude: req.Longitude,
+	}
+	if area.City == "" || len(area.City) > 100 {
+		return domain.ShippingArea{}, domain.ValidationError{Message: "kota / kabupaten wajib diisi maksimal 100 karakter"}
+	}
+	if len(area.District) > 100 {
+		return domain.ShippingArea{}, domain.ValidationError{Message: "kecamatan maksimal 100 karakter"}
+	}
+	if area.FeeCents < 0 {
+		return domain.ShippingArea{}, domain.ValidationError{Message: "tarif ongkir tidak boleh negatif"}
+	}
+	if area.Latitude < -90 || area.Latitude > 90 || area.Longitude < -180 || area.Longitude > 180 {
+		return domain.ShippingArea{}, domain.ValidationError{Message: "koordinat wilayah tidak valid"}
+	}
+	if id == 0 {
+		return s.db.CreateShippingArea(ctx, area)
+	}
+	if id < 1 {
+		return domain.ShippingArea{}, domain.ValidationError{Message: "ID wilayah tidak valid"}
+	}
+	return s.db.UpdateShippingArea(ctx, id, area)
+}
+
+func (s *Store) DeleteShippingArea(ctx context.Context, id int64) error {
+	if id < 1 {
+		return domain.ValidationError{Message: "ID wilayah tidak valid"}
+	}
+	return s.db.DeleteShippingArea(ctx, id)
 }

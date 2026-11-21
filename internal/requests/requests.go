@@ -59,6 +59,8 @@ type CreateOrder struct {
 	Items           []OrderLine `json:"items"`
 	PaymentMethod   string      `json:"payment_method"`
 	ShippingAddress string      `json:"shipping_address"`
+	City            string      `json:"city"`
+	District        string      `json:"district"`
 }
 
 type CartPayload struct {
@@ -95,4 +97,25 @@ type Customer struct {
 	RTRW        string `json:"rt_rw"`
 	PostalCode  string `json:"postal_code"`
 	Address     string `json:"address"`
+}
+
+type ShippingSettings struct {
+	OriginLatitude  float64 `json:"origin_latitude"`
+	OriginLongitude float64 `json:"origin_longitude"`
+	DefaultFeeCents int64   `json:"default_fee_cents"`
+}
+
+type ShippingZone struct {
+	Name     string  `json:"name"`
+	MinKm    float64 `json:"min_km"`
+	MaxKm    float64 `json:"max_km"`
+	FeeCents int64   `json:"fee_cents"`
+}
+
+type ShippingArea struct {
+	City      string  `json:"city"`
+	District  string  `json:"district"`
+	FeeCents  int64   `json:"fee_cents"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
 }

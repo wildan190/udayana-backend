@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"time"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
@@ -15,7 +16,10 @@ import (
 	"udayana-backend/internal/domain"
 )
 
-var ErrEmailTaken = errors.New("email sudah terdaftar")
+var (
+	ErrEmailTaken = errors.New("email sudah terdaftar")
+	ErrNotFound   = errors.New("data tidak ditemukan")
+)
 
 type MySQL struct {
 	db *sql.DB
@@ -94,6 +98,28 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 			is_default BOOLEAN NOT NULL DEFAULT FALSE,
 			CONSTRAINT fk_addresses_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS shipping_settings (
+			id TINYINT PRIMARY KEY,
+			origin_latitude DECIMAL(10,7) NOT NULL DEFAULT 0,
+			origin_longitude DECIMAL(10,7) NOT NULL DEFAULT 0,
+			default_fee_cents BIGINT NOT NULL DEFAULT 1000000
+		)`,
+		`CREATE TABLE IF NOT EXISTS shipping_zones (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			name VARCHAR(80) NOT NULL,
+			min_km DECIMAL(6,1) NOT NULL DEFAULT 0,
+			max_km DECIMAL(6,1) NOT NULL DEFAULT 0,
+			fee_cents BIGINT NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS shipping_areas (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			city VARCHAR(100) NOT NULL DEFAULT '',
+			district VARCHAR(100) NOT NULL DEFAULT '',
+			fee_cents BIGINT NOT NULL DEFAULT 0,
+			latitude DECIMAL(10,7) NOT NULL DEFAULT 0,
+			longitude DECIMAL(10,7) NOT NULL DEFAULT 0,
+			INDEX idx_shipping_areas_city (city, district)
+		)`,
 	}
 	for _, statement := range statements {
 		if _, err := r.db.ExecContext(ctx, statement); err != nil {
@@ -112,11 +138,17 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 		"ALTER TABLE orders MODIFY COLUMN midtrans_response TEXT NULL",
 		"ALTER TABLE orders MODIFY COLUMN status ENUM('pending','processing','shipping','completed','cancelled') NOT NULL DEFAULT 'pending'",
 		"ALTER TABLE orders MODIFY COLUMN payment_method ENUM('COD','MIDTRANS','MIDTRANS_QRIS') NOT NULL DEFAULT 'COD'",
+		"ALTER TABLE orders ADD COLUMN shipping_fee_cents BIGINT NOT NULL DEFAULT 0",
+		"ALTER TABLE orders ADD COLUMN distance_km DECIMAL(6,1) NOT NULL DEFAULT 0",
+		"ALTER TABLE shipping_areas ADD COLUMN fee_cents BIGINT NOT NULL DEFAULT 0",
 	}
 	for _, colStmt := range alterColumns {
 		if _, err := r.db.ExecContext(ctx, colStmt); err != nil {
 			log.Printf("migration alter notice (safe if column/index already exists): %v", err)
 		}
+	}
+	if err := r.seedShipping(ctx); err != nil {
+		return err
 	}
 	if err := r.seedUser(ctx, "Admin Udayana", "admin@udayana.com", "admin@2025", "admin"); err != nil {
 		return err
@@ -139,6 +171,8 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 			(name, description, category, need_type, price_cents, stock, image_url) VALUES
 			('Beras premium 5 kg', 'Beras pulen untuk kebutuhan keluarga.', 'Bahan Pokok', 'daily_need', 78500, 25, ''),
 			('Minyak goreng 1 L', 'Minyak goreng untuk memasak sehari-hari.', 'Bahan Pokok', 'daily_need', 18500, 40, ''),
+			('Mie instan goreng', 'Mie instan favorit keluarga.', 'Makanan', 'daily_need', 3500, 60, ''),
+			('Air mineral 600 ml', 'Air mineral segar dalam kemasan.', 'Minuman', 'daily_need', 3000, 100, ''),
 			('Telur ayam 1 kg', 'Telur segar pilihan.', 'Protein', 'daily_need', 29500, 30, ''),
 			('Sabun mandi', 'Sabun mandi untuk kebutuhan harian.', 'Perawatan Diri', 'daily_essentials', 9500, 50, ''),
 			('Tisu wajah', 'Tisu lembut untuk rumah dan perjalanan.', 'Rumah Tangga', 'daily_essentials', 12500, 45, ''),
@@ -159,6 +193,182 @@ func (r *MySQL) seedUser(ctx context.Context, name, email, password, role string
 		ON DUPLICATE KEY UPDATE name = VALUES(name), password_hash = VALUES(password_hash), role = VALUES(role)`,
 		name, email, string(hash), role)
 	return err
+}
+
+func (r *MySQL) seedShipping(ctx context.Context) error {
+	if _, err := r.db.ExecContext(ctx, `INSERT INTO shipping_settings (id, origin_latitude, origin_longitude, default_fee_cents)
+		VALUES (1, 0, 0, 1000000) ON DUPLICATE KEY UPDATE id = id`); err != nil {
+		return fmt.Errorf("seed shipping settings: %w", err)
+	}
+	var zoneCount int
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM shipping_zones").Scan(&zoneCount); err != nil {
+		return err
+	}
+	if zoneCount == 0 {
+		_, err := r.db.ExecContext(ctx, `INSERT INTO shipping_zones (name, min_km, max_km, fee_cents) VALUES
+			('Dalam 5 km', 0, 5, 1000000),
+			('5 - 10 km', 5, 10, 1500000),
+			('10 - 20 km', 10, 20, 2500000),
+			('Di atas 20 km', 20, 999, 4000000)`)
+		if err != nil {
+			return fmt.Errorf("seed shipping zones: %w", err)
+		}
+	}
+	return nil
+}
+
+func (r *MySQL) ShippingSettings(ctx context.Context) (domain.ShippingSettings, error) {
+	var settings domain.ShippingSettings
+	err := r.db.QueryRowContext(ctx, `SELECT origin_latitude, origin_longitude, default_fee_cents
+		FROM shipping_settings WHERE id = 1`).Scan(
+		&settings.OriginLatitude, &settings.OriginLongitude, &settings.DefaultFeeCents)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.ShippingSettings{DefaultFeeCents: 1000000}, nil
+	}
+	return settings, err
+}
+
+func (r *MySQL) UpdateShippingSettings(ctx context.Context, settings domain.ShippingSettings) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO shipping_settings (id, origin_latitude, origin_longitude, default_fee_cents)
+		VALUES (1, ?, ?, ?) ON DUPLICATE KEY UPDATE origin_latitude = VALUES(origin_latitude),
+		origin_longitude = VALUES(origin_longitude), default_fee_cents = VALUES(default_fee_cents)`,
+		settings.OriginLatitude, settings.OriginLongitude, settings.DefaultFeeCents)
+	return err
+}
+
+func (r *MySQL) ShippingZones(ctx context.Context) ([]domain.ShippingZone, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name, min_km, max_km, fee_cents
+		FROM shipping_zones ORDER BY min_km, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	zones := make([]domain.ShippingZone, 0)
+	for rows.Next() {
+		var zone domain.ShippingZone
+		if err := rows.Scan(&zone.ID, &zone.Name, &zone.MinKm, &zone.MaxKm, &zone.FeeCents); err != nil {
+			return nil, err
+		}
+		zones = append(zones, zone)
+	}
+	return zones, rows.Err()
+}
+
+func (r *MySQL) CreateShippingZone(ctx context.Context, zone domain.ShippingZone) (domain.ShippingZone, error) {
+	result, err := r.db.ExecContext(ctx, `INSERT INTO shipping_zones (name, min_km, max_km, fee_cents)
+		VALUES (?, ?, ?, ?)`, zone.Name, zone.MinKm, zone.MaxKm, zone.FeeCents)
+	if err != nil {
+		return domain.ShippingZone{}, err
+	}
+	zone.ID, err = result.LastInsertId()
+	return zone, err
+}
+
+func (r *MySQL) UpdateShippingZone(ctx context.Context, id int64, zone domain.ShippingZone) (domain.ShippingZone, error) {
+	result, err := r.db.ExecContext(ctx, `UPDATE shipping_zones SET name = ?, min_km = ?, max_km = ?, fee_cents = ?
+		WHERE id = ?`, zone.Name, zone.MinKm, zone.MaxKm, zone.FeeCents, id)
+	if err != nil {
+		return domain.ShippingZone{}, err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return domain.ShippingZone{}, ErrNotFound
+	}
+	zone.ID = id
+	return zone, nil
+}
+
+func (r *MySQL) DeleteShippingZone(ctx context.Context, id int64) error {
+	result, err := r.db.ExecContext(ctx, "DELETE FROM shipping_zones WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *MySQL) ShippingAreas(ctx context.Context) ([]domain.ShippingArea, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, city, district, fee_cents, latitude, longitude
+		FROM shipping_areas ORDER BY city, district, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	areas := make([]domain.ShippingArea, 0)
+	for rows.Next() {
+		var area domain.ShippingArea
+		if err := rows.Scan(&area.ID, &area.City, &area.District, &area.FeeCents, &area.Latitude, &area.Longitude); err != nil {
+			return nil, err
+		}
+		areas = append(areas, area)
+	}
+	return areas, rows.Err()
+}
+
+func (r *MySQL) CreateShippingArea(ctx context.Context, area domain.ShippingArea) (domain.ShippingArea, error) {
+	result, err := r.db.ExecContext(ctx, `INSERT INTO shipping_areas (city, district, fee_cents, latitude, longitude)
+		VALUES (?, ?, ?, ?, ?)`, area.City, area.District, area.FeeCents, area.Latitude, area.Longitude)
+	if err != nil {
+		return domain.ShippingArea{}, err
+	}
+	area.ID, err = result.LastInsertId()
+	return area, err
+}
+
+func (r *MySQL) UpdateShippingArea(ctx context.Context, id int64, area domain.ShippingArea) (domain.ShippingArea, error) {
+	result, err := r.db.ExecContext(ctx, `UPDATE shipping_areas SET city = ?, district = ?, fee_cents = ?, latitude = ?, longitude = ?
+		WHERE id = ?`, area.City, area.District, area.FeeCents, area.Latitude, area.Longitude, id)
+	if err != nil {
+		return domain.ShippingArea{}, err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return domain.ShippingArea{}, ErrNotFound
+	}
+	area.ID = id
+	return area, nil
+}
+
+func (r *MySQL) DeleteShippingArea(ctx context.Context, id int64) error {
+	result, err := r.db.ExecContext(ctx, "DELETE FROM shipping_areas WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// FindShippingArea mencari titik wilayah tujuan. Prioritas: (kota + kecamatan),
+// lalu fallback ke kota saja. Mengembalikan ErrNotFound bila tidak ada.
+func (r *MySQL) FindShippingArea(ctx context.Context, city, district string) (domain.ShippingArea, error) {
+	city = strings.TrimSpace(city)
+	district = strings.TrimSpace(district)
+	var area domain.ShippingArea
+	if city != "" && district != "" {
+		err := r.db.QueryRowContext(ctx, `SELECT id, city, district, fee_cents, latitude, longitude FROM shipping_areas
+			WHERE LOWER(city) = LOWER(?) AND LOWER(district) = LOWER(?) ORDER BY id LIMIT 1`,
+			city, district).Scan(&area.ID, &area.City, &area.District, &area.FeeCents, &area.Latitude, &area.Longitude)
+		if err == nil {
+			return area, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return domain.ShippingArea{}, err
+		}
+	}
+	if city != "" {
+		err := r.db.QueryRowContext(ctx, `SELECT id, city, district, fee_cents, latitude, longitude FROM shipping_areas
+			WHERE LOWER(city) = LOWER(?) ORDER BY id LIMIT 1`,
+			city).Scan(&area.ID, &area.City, &area.District, &area.FeeCents, &area.Latitude, &area.Longitude)
+		if err == nil {
+			return area, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return domain.ShippingArea{}, err
+		}
+	}
+	return domain.ShippingArea{}, ErrNotFound
 }
 
 func (r *MySQL) FindCredential(ctx context.Context, email string) (domain.Credential, error) {
@@ -310,7 +520,7 @@ func (r *MySQL) DeactivateProduct(ctx context.Context, id int64) error {
 	return err
 }
 
-func (r *MySQL) CreateOrder(ctx context.Context, userID int64, items []domain.OrderItem, paymentMethod, shippingAddress string) (domain.Order, error) {
+func (r *MySQL) CreateOrder(ctx context.Context, userID int64, items []domain.OrderItem, paymentMethod, shippingAddress string, shippingFeeCents int64, distanceKm float64) (domain.Order, error) {
 	items = append([]domain.OrderItem(nil), items...)
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].ProductID < items[j].ProductID
@@ -325,11 +535,13 @@ func (r *MySQL) CreateOrder(ctx context.Context, userID int64, items []domain.Or
 		paymentMethod = "COD"
 	}
 	order := domain.Order{
-		Customer:        domain.User{ID: userID},
-		Items:           make([]domain.OrderItem, 0, len(items)),
-		PaymentMethod:   paymentMethod,
-		ShippingAddress: shippingAddress,
-		Status:          "pending",
+		Customer:         domain.User{ID: userID},
+		Items:            make([]domain.OrderItem, 0, len(items)),
+		PaymentMethod:    paymentMethod,
+		ShippingAddress:  shippingAddress,
+		ShippingFeeCents: shippingFeeCents,
+		DistanceKm:       distanceKm,
+		Status:           "pending",
 	}
 	for _, item := range items {
 		var name string
@@ -363,8 +575,9 @@ func (r *MySQL) CreateOrder(ctx context.Context, userID int64, items []domain.Or
 			return domain.Order{}, domain.ValidationError{Message: fmt.Sprintf("stok %s tidak mencukupi", name)}
 		}
 	}
+	order.TotalCents += order.ShippingFeeCents
 	respJSON, _ := json.Marshal(order.MidtransResponse)
-	result, err := tx.ExecContext(ctx, "INSERT INTO orders (user_id, total_cents, payment_method, shipping_address, midtrans_response) VALUES (?, ?, ?, ?, ?)", userID, order.TotalCents, order.PaymentMethod, order.ShippingAddress, string(respJSON))
+	result, err := tx.ExecContext(ctx, "INSERT INTO orders (user_id, total_cents, shipping_fee_cents, distance_km, payment_method, shipping_address, midtrans_response) VALUES (?, ?, ?, ?, ?, ?, ?)", userID, order.TotalCents, order.ShippingFeeCents, order.DistanceKm, order.PaymentMethod, order.ShippingAddress, string(respJSON))
 	if err != nil {
 		return domain.Order{}, err
 	}
@@ -386,7 +599,7 @@ func (r *MySQL) CreateOrder(ctx context.Context, userID int64, items []domain.Or
 
 func (r *MySQL) ListOrders(ctx context.Context, userID int64, admin bool) ([]domain.Order, error) {
 	query := `SELECT o.id, o.user_id, u.name, u.email, u.role, COALESCE(u.phone,''), COALESCE(u.province,''), COALESCE(u.city,''), COALESCE(u.district,''), COALESCE(u.subdistrict,''), COALESCE(u.rt_rw,''), COALESCE(u.postal_code,''), COALESCE(u.address,''), o.total_cents,
-		o.payment_method, COALESCE(o.shipping_address,''), COALESCE(o.midtrans_response,'{}'), o.status, o.created_at FROM orders o JOIN users u ON u.id=o.user_id`
+		o.shipping_fee_cents, o.distance_km, o.payment_method, COALESCE(o.shipping_address,''), COALESCE(o.midtrans_response,'{}'), o.status, o.created_at FROM orders o JOIN users u ON u.id=o.user_id`
 	args := []any{}
 	if !admin {
 		query += " WHERE o.user_id = ?"
@@ -406,7 +619,7 @@ func (r *MySQL) ListOrders(ctx context.Context, userID int64, admin bool) ([]dom
 			&order.Customer.Email, &order.Customer.Role, &order.Customer.Phone,
 			&order.Customer.Province, &order.Customer.City, &order.Customer.District,
 			&order.Customer.Subdistrict, &order.Customer.RTRW, &order.Customer.PostalCode,
-			&order.Customer.Address, &order.TotalCents, &order.PaymentMethod, &order.ShippingAddress, &midtransJSON, &order.Status, &order.CreatedAt); err != nil {
+			&order.Customer.Address, &order.TotalCents, &order.ShippingFeeCents, &order.DistanceKm, &order.PaymentMethod, &order.ShippingAddress, &midtransJSON, &order.Status, &order.CreatedAt); err != nil {
 			return nil, err
 		}
 		if midtransJSON != "" {
@@ -501,6 +714,11 @@ func (r *MySQL) UpdateOrderStatus(ctx context.Context, id int64, status string) 
 		return err
 	}
 	return tx.Commit()
+}
+
+func (r *MySQL) UpdateOrderMidtransResponse(ctx context.Context, id int64, response []byte) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE orders SET midtrans_response = ? WHERE id = ?", string(response), id)
+	return err
 }
 
 func (r *MySQL) ListCustomers(ctx context.Context) ([]domain.User, error) {
