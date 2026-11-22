@@ -51,7 +51,7 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 		)`,
 		`CREATE TABLE IF NOT EXISTS orders (
 			id BIGINT PRIMARY KEY AUTO_INCREMENT, user_id BIGINT NOT NULL,
-			total_cents BIGINT NOT NULL, payment_method ENUM('COD','MIDTRANS','MIDTRANS_QRIS') NOT NULL DEFAULT 'COD',
+			total_cents BIGINT NOT NULL, payment_method VARCHAR(50) NOT NULL DEFAULT 'COD',
 			shipping_address TEXT NULL,
 			midtrans_response TEXT NULL,
 			status ENUM('pending','processing','shipping','completed','cancelled') NOT NULL DEFAULT 'pending',
