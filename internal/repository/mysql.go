@@ -137,7 +137,7 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 		"ALTER TABLE orders MODIFY COLUMN shipping_address TEXT NULL",
 		"ALTER TABLE orders MODIFY COLUMN midtrans_response TEXT NULL",
 		"ALTER TABLE orders MODIFY COLUMN status ENUM('pending','processing','shipping','completed','cancelled','cancellation_requested') NOT NULL DEFAULT 'pending'",
-		"ALTER TABLE orders MODIFY COLUMN payment_method ENUM('COD','MIDTRANS','MIDTRANS_QRIS') NOT NULL DEFAULT 'COD'",
+		"ALTER TABLE orders MODIFY COLUMN payment_method VARCHAR(50) NOT NULL DEFAULT 'COD'",
 		"ALTER TABLE orders ADD COLUMN shipping_fee_cents BIGINT NOT NULL DEFAULT 0",
 		"ALTER TABLE orders ADD COLUMN distance_km DECIMAL(6,1) NOT NULL DEFAULT 0",
 		"ALTER TABLE shipping_areas ADD COLUMN fee_cents BIGINT NOT NULL DEFAULT 0",
