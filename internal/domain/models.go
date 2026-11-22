@@ -11,18 +11,21 @@ func (e ValidationError) Error() string {
 }
 
 type User struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Email       string `json:"email"`
-	Role        string `json:"role"`
-	Phone       string `json:"phone"`
-	Province    string `json:"province"`
-	City        string `json:"city"`
-	District    string `json:"district"`
-	Subdistrict string `json:"subdistrict"`
-	RTRW        string `json:"rt_rw"`
-	PostalCode  string `json:"postal_code"`
-	Address     string `json:"address"`
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	Email         string `json:"email"`
+	Role          string `json:"role"`
+	Phone         string `json:"phone"`
+	Province      string `json:"province"`
+	City          string `json:"city"`
+	District      string `json:"district"`
+	Subdistrict   string `json:"subdistrict"`
+	RTRW          string `json:"rt_rw"`
+	PostalCode    string `json:"postal_code"`
+	Address       string `json:"address"`
+	BankName      string `json:"bank_name"`
+	AccountName   string `json:"account_name"`
+	AccountNumber string `json:"account_number"`
 }
 
 type Credential struct {
@@ -67,17 +70,22 @@ type OrderItem struct {
 }
 
 type Order struct {
-	ID               int64          `json:"id"`
-	Customer         User           `json:"customer,omitempty"`
-	Items            []OrderItem    `json:"items"`
-	TotalCents       int64          `json:"total_cents"`
-	ShippingFeeCents int64          `json:"shipping_fee_cents"`
-	DistanceKm       float64        `json:"distance_km"`
-	PaymentMethod    string         `json:"payment_method"`
-	ShippingAddress  string         `json:"shipping_address"`
-	MidtransResponse map[string]any `json:"midtrans_response,omitempty"`
-	Status           string         `json:"status"`
-	CreatedAt        time.Time      `json:"created_at"`
+	ID                  int64          `json:"id"`
+	Customer            User           `json:"customer,omitempty"`
+	Items               []OrderItem    `json:"items"`
+	TotalCents          int64          `json:"total_cents"`
+	ShippingFeeCents    int64          `json:"shipping_fee_cents"`
+	DistanceKm          float64        `json:"distance_km"`
+	PaymentMethod       string         `json:"payment_method"`
+	ShippingAddress     string         `json:"shipping_address"`
+	MidtransResponse    map[string]any `json:"midtrans_response,omitempty"`
+	Status              string         `json:"status"`
+	CancellationReason  string         `json:"cancellation_reason,omitempty"`
+	RefundBankName      string         `json:"refund_bank_name,omitempty"`
+	RefundAccountName   string         `json:"refund_account_name,omitempty"`
+	RefundAccountNumber string         `json:"refund_account_number,omitempty"`
+	IrisPayoutReference string         `json:"iris_payout_reference,omitempty"`
+	CreatedAt           time.Time      `json:"created_at"`
 }
 
 // ShippingSettings menyimpan titik asal pengiriman (toko) dan tarif default.

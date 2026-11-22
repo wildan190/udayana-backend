@@ -269,6 +269,22 @@ func (*registrationTestStore) SetDefaultAddress(context.Context, int64, int64) e
 	return errors.New("unexpected SetDefaultAddress call")
 }
 
+func (*registrationTestStore) UpdateUserBankAccount(context.Context, int64, string, string, string) error {
+	return errors.New("unexpected UpdateUserBankAccount call")
+}
+
+func (*registrationTestStore) RequestOrderCancellation(context.Context, int64, int64, string, string, string, string) error {
+	return errors.New("unexpected RequestOrderCancellation call")
+}
+
+func (*registrationTestStore) ApproveOrderCancellation(context.Context, int64, string) error {
+	return errors.New("unexpected ApproveOrderCancellation call")
+}
+
+func (*registrationTestStore) RejectOrderCancellation(context.Context, int64) error {
+	return errors.New("unexpected RejectOrderCancellation call")
+}
+
 func (*registrationTestStore) ShippingSettings(context.Context) (domain.ShippingSettings, error) {
 	return domain.ShippingSettings{DefaultFeeCents: 1000000}, nil
 }

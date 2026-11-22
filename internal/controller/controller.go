@@ -40,6 +40,7 @@ func (c *Controller) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login", c.login)
 	mux.HandleFunc("POST /api/v1/auth/register", c.registerBuyer)
 	mux.Handle("PUT /api/v1/buyer/address", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.updateBuyerAddress)))
+	mux.Handle("PUT /api/v1/buyer/bank-account", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.updateBankAccount)))
 	mux.Handle("GET /api/v1/buyer/addresses", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.listAddresses)))
 	mux.Handle("POST /api/v1/buyer/addresses", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.createAddress)))
 	mux.Handle("DELETE /api/v1/buyer/addresses/{id}", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.deleteAddress)))
@@ -54,6 +55,7 @@ func (c *Controller) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/product-images/{key}", c.productImage)
 	mux.HandleFunc("GET /api/v1/ui/home", c.homeLayout)
 	mux.Handle("POST /api/v1/orders", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.checkout)))
+	mux.Handle("POST /api/v1/buyer/orders/{id}/cancel-request", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.requestOrderCancellation)))
 	mux.Handle("GET /api/v1/orders", middleware.RequireRole(c.store, "buyer", "admin")(http.HandlerFunc(c.orders)))
 	mux.Handle("GET /api/v1/buyer/orders/{id}/payment", middleware.RequireRole(c.store, "buyer", "admin")(http.HandlerFunc(c.paymentDetails)))
 	mux.Handle("GET /api/v1/shipping/quote", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.shippingQuote)))
@@ -64,6 +66,8 @@ func (c *Controller) Routes() http.Handler {
 	mux.Handle("DELETE /api/v1/admin/products/{id}", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.deleteProduct)))
 	mux.Handle("POST /api/v1/admin/product-images", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.uploadProductImage)))
 	mux.Handle("GET /api/v1/admin/orders", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.adminOrders)))
+	mux.Handle("POST /api/v1/admin/orders/{id}/approve-cancellation", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.approveCancellation)))
+	mux.Handle("POST /api/v1/admin/orders/{id}/reject-cancellation", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.rejectCancellation)))
 	mux.Handle("PATCH /api/v1/admin/orders/{id}/status", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.updateOrderStatus)))
 	mux.Handle("POST /api/v1/admin/orders/{id}/simulate-payment", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.simulatePayment)))
 	mux.Handle("GET /api/v1/admin/customers", middleware.RequireRole(c.store, "admin")(http.HandlerFunc(c.customers)))
@@ -596,6 +600,60 @@ func (c *Controller) paymentFailed(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`<html><body><h1>Pembayaran Gagal (Failed)</h1><p>Maaf, pembayaran Midtrans Anda gagal atau dibatalkan.</p></body></html>`))
+}
+
+func (c *Controller) requestOrderCancellation(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.Identity(r)
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var request requests.CancelOrder
+	if !decode(w, r, &request) {
+		return
+	}
+	if err := c.store.RequestOrderCancellation(r.Context(), userID, id, request); err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancellation_requested"})
+}
+
+func (c *Controller) updateBankAccount(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.Identity(r)
+	var request requests.BankAccount
+	if !decode(w, r, &request) {
+		return
+	}
+	if err := c.store.UpdateUserBankAccount(r.Context(), userID, request); err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (c *Controller) approveCancellation(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := c.store.ApproveOrderCancellation(r.Context(), id); err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+func (c *Controller) rejectCancellation(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := c.store.RejectOrderCancellation(r.Context(), id); err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "processing"})
 }
 
 func (c *Controller) getCart(w http.ResponseWriter, r *http.Request) {

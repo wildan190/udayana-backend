@@ -55,6 +55,19 @@ type Withdraw struct {
 	AmountCents   int64  `json:"amount_cents"`
 }
 
+type CancelOrder struct {
+	Reason        string `json:"reason"`
+	BankName      string `json:"bank_name"`
+	AccountName   string `json:"account_name"`
+	AccountNumber string `json:"account_number"`
+}
+
+type BankAccount struct {
+	BankName      string `json:"bank_name"`
+	AccountName   string `json:"account_name"`
+	AccountNumber string `json:"account_number"`
+}
+
 type CreateOrder struct {
 	Items           []OrderLine `json:"items"`
 	PaymentMethod   string      `json:"payment_method"`

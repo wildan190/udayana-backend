@@ -32,6 +32,10 @@ type dataStore interface {
 	CreateOrder(context.Context, int64, []domain.OrderItem, string, string, int64, float64) (domain.Order, error)
 	ListOrders(context.Context, int64, bool) ([]domain.Order, error)
 	UpdateOrderStatus(context.Context, int64, string) error
+	RequestOrderCancellation(context.Context, int64, int64, string, string, string, string) error
+	UpdateUserBankAccount(context.Context, int64, string, string, string) error
+	ApproveOrderCancellation(context.Context, int64, string) error
+	RejectOrderCancellation(context.Context, int64) error
 	UpdateOrderMidtransResponse(context.Context, int64, []byte) error
 	ListCustomers(context.Context) ([]domain.User, error)
 	UpdateCustomer(context.Context, int64, domain.User) (domain.User, error)
@@ -319,8 +323,8 @@ func (s *Store) Checkout(ctx context.Context, userID int64, items []domain.Order
 	if len(items) == 0 || len(items) > 100 {
 		return domain.Order{}, domain.ValidationError{Message: "keranjang harus berisi 1 sampai 100 produk"}
 	}
-	if paymentMethod != "COD" && paymentMethod != "MIDTRANS" && paymentMethod != "MIDTRANS_QRIS" {
-		return domain.Order{}, domain.ValidationError{Message: "metode pembayaran harus COD, MIDTRANS, atau MIDTRANS_QRIS"}
+	if paymentMethod != "COD" && paymentMethod != "MIDTRANS" && paymentMethod != "MIDTRANS_QRIS" && !strings.HasPrefix(paymentMethod, "MIDTRANS_") {
+		return domain.Order{}, domain.ValidationError{Message: "metode pembayaran tidak valid"}
 	}
 	shippingAddress = strings.TrimSpace(shippingAddress)
 	if shippingAddress == "" {
@@ -349,7 +353,7 @@ func (s *Store) Checkout(ctx context.Context, userID int64, items []domain.Order
 		return domain.Order{}, err
 	}
 
-	if paymentMethod == "MIDTRANS" || paymentMethod == "MIDTRANS_QRIS" {
+	if paymentMethod == "MIDTRANS" || paymentMethod == "MIDTRANS_QRIS" || strings.HasPrefix(paymentMethod, "MIDTRANS_") {
 		customer, err := s.db.FindUser(ctx, userID)
 		if err == nil {
 			midtrans := NewMidtransClient()
@@ -599,11 +603,15 @@ func (s *Store) CreateWithdrawal(ctx context.Context, adminID int64, req request
 	}
 
 	iris := NewIrisClient()
-	resp, err := iris.CreatePayout(ctx, w)
+	amountStr := fmt.Sprintf("%.2f", float64(w.AmountCents)/100.0)
+	refNo, err := iris.CreatePayout(ctx, w.AccountName, w.AccountNumber, w.BankName, amountStr, w.ReferenceID)
 	if err != nil {
 		log.Printf("[IRIS ERROR] CreatePayout gagal: %v", err)
 	} else {
-		log.Printf("[IRIS INFO] CreatePayout sukses: %+v", resp)
+		log.Printf("[IRIS INFO] CreatePayout sukses, ref: %s", refNo)
+		if refNo != "" {
+			w.ReferenceID = refNo
+		}
 	}
 
 	return s.db.CreateWithdrawal(ctx, w)
@@ -728,6 +736,77 @@ func (s *Store) SetDefaultAddress(ctx context.Context, userID, addressID int64) 
 		return domain.ValidationError{Message: "ID tidak valid"}
 	}
 	return s.db.SetDefaultAddress(ctx, userID, addressID)
+}
+
+func (s *Store) UpdateUserBankAccount(ctx context.Context, userID int64, req requests.BankAccount) error {
+	if userID < 1 {
+		return domain.ValidationError{Message: "ID pengguna tidak valid"}
+	}
+	return s.db.UpdateUserBankAccount(ctx, userID, strings.TrimSpace(req.BankName), strings.TrimSpace(req.AccountName), strings.TrimSpace(req.AccountNumber))
+}
+
+func (s *Store) RequestOrderCancellation(ctx context.Context, userID, orderID int64, req requests.CancelOrder) error {
+	if userID < 1 || orderID < 1 {
+		return domain.ValidationError{Message: "ID tidak valid"}
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		return domain.ValidationError{Message: "alasan pembatalan wajib diisi"}
+	}
+	return s.db.RequestOrderCancellation(ctx, userID, orderID, reason, strings.TrimSpace(req.BankName), strings.TrimSpace(req.AccountName), strings.TrimSpace(req.AccountNumber))
+}
+
+func (s *Store) ApproveOrderCancellation(ctx context.Context, orderID int64) error {
+	if orderID < 1 {
+		return domain.ValidationError{Message: "ID pesanan tidak valid"}
+	}
+	orders, err := s.db.ListOrders(ctx, 0, true)
+	if err != nil {
+		return err
+	}
+	var target *domain.Order
+	for _, o := range orders {
+		if o.ID == orderID {
+			target = &o
+			break
+		}
+	}
+	if target == nil {
+		return domain.ValidationError{Message: "pesanan tidak ditemukan"}
+	}
+
+	iris := NewIrisClient()
+	bank := target.RefundBankName
+	if bank == "" {
+		bank = target.Customer.BankName
+	}
+	accName := target.RefundAccountName
+	if accName == "" {
+		accName = target.Customer.AccountName
+	}
+	accNo := target.RefundAccountNumber
+	if accNo == "" {
+		accNo = target.Customer.AccountNumber
+	}
+
+	if bank != "" && accNo != "" && accName != "" {
+		amountStr := fmt.Sprintf("%.2f", float64(target.TotalCents)/100.0)
+		refNo, err := iris.CreatePayout(ctx, accName, accNo, bank, amountStr, fmt.Sprintf("Refund Pesanan #%d", orderID))
+		if err != nil {
+			log.Printf("[IRIS WARNING] Gagal transfer IRIS payout, tetapi melanjutkan persetujuan pembatalan: %v", err)
+			refNo = "IRIS-MANUAL-REF"
+		}
+		return s.db.ApproveOrderCancellation(ctx, orderID, refNo)
+	}
+
+	return s.db.ApproveOrderCancellation(ctx, orderID, "REFUND-NO-BANK")
+}
+
+func (s *Store) RejectOrderCancellation(ctx context.Context, orderID int64) error {
+	if orderID < 1 {
+		return domain.ValidationError{Message: "ID pesanan tidak valid"}
+	}
+	return s.db.RejectOrderCancellation(ctx, orderID)
 }
 
 // defaultShippingFeeCents adalah ongkos kirim bawaan (Rp 10.000) yang dipakai

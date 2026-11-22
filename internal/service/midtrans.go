@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"udayana-backend/internal/domain"
@@ -96,9 +97,16 @@ func (m *MidtransClient) Charge(ctx context.Context, order domain.Order, custome
 			"acquirer": "gopay",
 		}
 	} else {
+		bank := "bca"
+		if strings.HasPrefix(order.PaymentMethod, "MIDTRANS_") {
+			parts := strings.Split(order.PaymentMethod, "_")
+			if len(parts) >= 2 {
+				bank = strings.ToLower(parts[1])
+			}
+		}
 		payload["payment_type"] = "bank_transfer"
 		payload["bank_transfer"] = map[string]any{
-			"bank": "bca",
+			"bank": bank,
 		}
 	}
 

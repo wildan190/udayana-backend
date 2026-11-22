@@ -136,11 +136,19 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 		"ALTER TABLE users MODIFY COLUMN address TEXT NULL",
 		"ALTER TABLE orders MODIFY COLUMN shipping_address TEXT NULL",
 		"ALTER TABLE orders MODIFY COLUMN midtrans_response TEXT NULL",
-		"ALTER TABLE orders MODIFY COLUMN status ENUM('pending','processing','shipping','completed','cancelled') NOT NULL DEFAULT 'pending'",
+		"ALTER TABLE orders MODIFY COLUMN status ENUM('pending','processing','shipping','completed','cancelled','cancellation_requested') NOT NULL DEFAULT 'pending'",
 		"ALTER TABLE orders MODIFY COLUMN payment_method ENUM('COD','MIDTRANS','MIDTRANS_QRIS') NOT NULL DEFAULT 'COD'",
 		"ALTER TABLE orders ADD COLUMN shipping_fee_cents BIGINT NOT NULL DEFAULT 0",
 		"ALTER TABLE orders ADD COLUMN distance_km DECIMAL(6,1) NOT NULL DEFAULT 0",
 		"ALTER TABLE shipping_areas ADD COLUMN fee_cents BIGINT NOT NULL DEFAULT 0",
+		"ALTER TABLE users ADD COLUMN bank_name VARCHAR(100) NOT NULL DEFAULT ''",
+		"ALTER TABLE users ADD COLUMN account_name VARCHAR(120) NOT NULL DEFAULT ''",
+		"ALTER TABLE users ADD COLUMN account_number VARCHAR(50) NOT NULL DEFAULT ''",
+		"ALTER TABLE orders ADD COLUMN cancellation_reason TEXT NULL",
+		"ALTER TABLE orders ADD COLUMN refund_bank_name VARCHAR(100) NOT NULL DEFAULT ''",
+		"ALTER TABLE orders ADD COLUMN refund_account_name VARCHAR(120) NOT NULL DEFAULT ''",
+		"ALTER TABLE orders ADD COLUMN refund_account_number VARCHAR(50) NOT NULL DEFAULT ''",
+		"ALTER TABLE orders ADD COLUMN iris_payout_reference VARCHAR(100) NOT NULL DEFAULT ''",
 	}
 	for _, colStmt := range alterColumns {
 		if _, err := r.db.ExecContext(ctx, colStmt); err != nil {
@@ -794,11 +802,48 @@ func (r *MySQL) UpdatePassword(ctx context.Context, userID int64, passwordHash s
 
 func (r *MySQL) FindUser(ctx context.Context, userID int64) (domain.User, error) {
 	var user domain.User
-	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,'')
+	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,''), COALESCE(bank_name,''), COALESCE(account_name,''), COALESCE(account_number,'')
 		FROM users WHERE id = ?`, userID).Scan(
 		&user.ID, &user.Name, &user.Email, &user.Role, &user.Phone,
-		&user.Province, &user.City, &user.District, &user.Subdistrict, &user.RTRW, &user.PostalCode, &user.Address)
+		&user.Province, &user.City, &user.District, &user.Subdistrict, &user.RTRW, &user.PostalCode, &user.Address,
+		&user.BankName, &user.AccountName, &user.AccountNumber)
 	return user, err
+}
+
+func (r *MySQL) UpdateUserBankAccount(ctx context.Context, userID int64, bankName, accountName, accountNumber string) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE users SET bank_name = ?, account_name = ?, account_number = ? WHERE id = ?",
+		bankName, accountName, accountNumber, userID)
+	return err
+}
+
+func (r *MySQL) RequestOrderCancellation(ctx context.Context, userID, orderID int64, reason, bankName, accountName, accountNumber string) error {
+	var current string
+	var ownerID int64
+	if err := r.db.QueryRowContext(ctx, "SELECT user_id, status FROM orders WHERE id = ?", orderID).Scan(&ownerID, &current); err != nil {
+		return err
+	}
+	if ownerID != userID {
+		return domain.ValidationError{Message: "pesanan bukan milik Anda"}
+	}
+	if current != "pending" && current != "processing" {
+		return domain.ValidationError{Message: "pesanan hanya dapat diajukan pembatalan saat status masih menunggu atau diproses"}
+	}
+	if reason == "" {
+		return domain.ValidationError{Message: "alasan pembatalan wajib diisi"}
+	}
+	_, err := r.db.ExecContext(ctx, `UPDATE orders SET status = 'cancellation_requested', cancellation_reason = ?, refund_bank_name = ?, refund_account_name = ?, refund_account_number = ? WHERE id = ?`,
+		reason, bankName, accountName, accountNumber, orderID)
+	return err
+}
+
+func (r *MySQL) ApproveOrderCancellation(ctx context.Context, orderID int64, refNo string) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE orders SET status = 'cancelled', iris_payout_reference = ? WHERE id = ?", refNo, orderID)
+	return err
+}
+
+func (r *MySQL) RejectOrderCancellation(ctx context.Context, orderID int64) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE orders SET status = 'processing' WHERE id = ?", orderID)
+	return err
 }
 
 func (r *MySQL) Report(ctx context.Context, from, to string) (domain.Report, error) {
