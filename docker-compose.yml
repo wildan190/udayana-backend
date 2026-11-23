@@ -62,10 +62,7 @@ services:
       - udayana-network
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: udayana-backend:latest
+    image: ghcr.io/wildan190/udayana-backend:latest
     container_name: udayana-api
     restart: always
     command: ["/app/udayana-api"]

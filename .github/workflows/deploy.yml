@@ -1,0 +1,80 @@
+name: Build & Deploy Backend
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-deploy:
+    name: Build Docker Image & Trigger Coolify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trigger Coolify Webhook Deployment
+        env:
+          COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_URL || 'https://coolify.phoenixtech.web.id/api/v1/deploy?uuid=lawtthxuqo2bx7jra3qo9mkm&force=false' }}
+        run: |
+          echo "Triggering Coolify deployment webhook..."
+          HTTP_STATUS=$(curl -s -o /tmp/coolify_res.txt -w "%{http_code}" -X POST "$COOLIFY_WEBHOOK" || true)
+          echo "Response HTTP status (POST): $HTTP_STATUS"
+          cat /tmp/coolify_res.txt
+          echo ""
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "Coolify deployment successfully triggered via POST!"
+          else
+            echo "POST did not return 2xx, retrying with GET..."
+            HTTP_STATUS_GET=$(curl -s -o /tmp/coolify_res_get.txt -w "%{http_code}" -X GET "$COOLIFY_WEBHOOK" || true)
+            echo "Response HTTP status (GET): $HTTP_STATUS_GET"
+            cat /tmp/coolify_res_get.txt
+            echo ""
+            if [ "$HTTP_STATUS_GET" -ge 200 ] && [ "$HTTP_STATUS_GET" -lt 300 ]; then
+              echo "Coolify deployment successfully triggered via GET!"
+            else
+              echo "Warning: Coolify webhook returned status $HTTP_STATUS_GET"
+              exit 1
+            fi
+          fi
