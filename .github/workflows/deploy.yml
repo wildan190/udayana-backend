@@ -56,9 +56,15 @@ jobs:
       - name: Trigger Coolify Webhook Deployment
         env:
           COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_URL || 'https://coolify.phoenixtech.web.id/api/v1/deploy?uuid=lawtthxuqo2bx7jra3qo9mkm&force=false' }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
           echo "Triggering Coolify deployment webhook..."
-          HTTP_STATUS=$(curl -s -o /tmp/coolify_res.txt -w "%{http_code}" -X POST "$COOLIFY_WEBHOOK" || true)
+          AUTH_HEADER=()
+          if [ -n "$COOLIFY_TOKEN" ]; then
+            AUTH_HEADER=(-H "Authorization: Bearer $COOLIFY_TOKEN")
+          fi
+
+          HTTP_STATUS=$(curl -s -o /tmp/coolify_res.txt -w "%{http_code}" -X POST "${AUTH_HEADER[@]}" -H "Accept: application/json" "$COOLIFY_WEBHOOK" || true)
           echo "Response HTTP status (POST): $HTTP_STATUS"
           cat /tmp/coolify_res.txt
           echo ""
@@ -67,14 +73,14 @@ jobs:
             echo "Coolify deployment successfully triggered via POST!"
           else
             echo "POST did not return 2xx, retrying with GET..."
-            HTTP_STATUS_GET=$(curl -s -o /tmp/coolify_res_get.txt -w "%{http_code}" -X GET "$COOLIFY_WEBHOOK" || true)
+            HTTP_STATUS_GET=$(curl -s -o /tmp/coolify_res_get.txt -w "%{http_code}" -X GET "${AUTH_HEADER[@]}" -H "Accept: application/json" "$COOLIFY_WEBHOOK" || true)
             echo "Response HTTP status (GET): $HTTP_STATUS_GET"
             cat /tmp/coolify_res_get.txt
             echo ""
             if [ "$HTTP_STATUS_GET" -ge 200 ] && [ "$HTTP_STATUS_GET" -lt 300 ]; then
               echo "Coolify deployment successfully triggered via GET!"
             else
-              echo "Warning: Coolify webhook returned status $HTTP_STATUS_GET"
+              echo "Error: Coolify webhook returned status $HTTP_STATUS_GET"
               exit 1
             fi
           fi
