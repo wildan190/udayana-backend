@@ -66,8 +66,8 @@ services:
     container_name: udayana-api
     restart: always
     command: ["/app/udayana-api"]
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     deploy:
       resources:
         limits:
