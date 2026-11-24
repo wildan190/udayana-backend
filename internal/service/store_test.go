@@ -221,6 +221,10 @@ func (*registrationTestStore) FindUser(context.Context, int64) (domain.User, err
 	return domain.User{Role: "buyer"}, nil
 }
 
+func (*registrationTestStore) DeleteUser(context.Context, int64) error {
+	return nil
+}
+
 func (*registrationTestStore) FindPasswordHash(context.Context, int64) (string, error) {
 	return "", errors.New("unexpected FindPasswordHash call")
 }

@@ -1059,6 +1059,29 @@ func (r *MySQL) SetDefaultAddress(ctx context.Context, userID, addressID int64) 
 	return tx.Commit()
 }
 
+func (r *MySQL) DeleteUser(ctx context.Context, userID int64) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM orders WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM cart_items WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM user_addresses WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", userID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }

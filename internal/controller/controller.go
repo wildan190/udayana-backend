@@ -46,6 +46,7 @@ func (c *Controller) Routes() http.Handler {
 	mux.Handle("DELETE /api/v1/buyer/addresses/{id}", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.deleteAddress)))
 	mux.Handle("PATCH /api/v1/buyer/addresses/{id}/default", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.setDefaultAddress)))
 	mux.Handle("PUT /api/v1/buyer/password", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.changePassword)))
+	mux.Handle("DELETE /api/v1/buyer/account", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.deleteAccount)))
 	mux.Handle("GET /api/v1/buyer/cart", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.getCart)))
 	mux.Handle("PUT /api/v1/buyer/cart", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.saveCart)))
 	mux.HandleFunc("POST /api/v1/payments/midtrans/notification", c.midtransNotification)
@@ -505,6 +506,18 @@ func (c *Controller) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("[HTTP SUCCESS] Kata sandi berhasil diubah untuk user_id=%d", userID)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "kata sandi berhasil diubah"})
+}
+
+func (c *Controller) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	userID, role := middleware.Identity(r)
+	log.Printf("[HTTP] Menerima request DELETE /api/v1/buyer/account dari user_id=%d (role=%s)", userID, role)
+	if err := c.store.DeleteAccount(r.Context(), userID); err != nil {
+		log.Printf("[HTTP ERROR] Store.DeleteAccount gagal untuk user_id=%d: %v", userID, err)
+		writeOperationError(w, err)
+		return
+	}
+	log.Printf("[HTTP SUCCESS] Akun berhasil dihapus untuk user_id=%d", userID)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Akun berhasil dihapus"})
 }
 
 func (c *Controller) customers(w http.ResponseWriter, r *http.Request) {

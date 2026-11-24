@@ -43,6 +43,7 @@ type dataStore interface {
 	FindPasswordHash(context.Context, int64) (string, error)
 	UpdatePassword(context.Context, int64, string) error
 	FindUser(context.Context, int64) (domain.User, error)
+	DeleteUser(context.Context, int64) error
 	GetCart(context.Context, int64) ([]domain.CartItem, error)
 	SaveCart(context.Context, int64, []domain.CartItem) error
 	ClearCart(context.Context, int64) error
@@ -498,6 +499,17 @@ func (s *Store) ChangePassword(ctx context.Context, userID int64, currentPasswor
 		return err
 	}
 	return s.db.UpdatePassword(ctx, userID, string(newHash))
+}
+
+func (s *Store) DeleteAccount(ctx context.Context, userID int64) error {
+	if userID < 1 {
+		return domain.ValidationError{Message: "ID pengguna tidak valid"}
+	}
+	if err := s.db.DeleteUser(ctx, userID); err != nil {
+		return err
+	}
+	_ = s.db.ClearCart(ctx, userID)
+	return nil
 }
 
 func (s *Store) HomeLayout() []domain.HomeComponent {
