@@ -149,6 +149,8 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 		"ALTER TABLE orders ADD COLUMN refund_account_name VARCHAR(120) NOT NULL DEFAULT ''",
 		"ALTER TABLE orders ADD COLUMN refund_account_number VARCHAR(50) NOT NULL DEFAULT ''",
 		"ALTER TABLE orders ADD COLUMN iris_payout_reference VARCHAR(100) NOT NULL DEFAULT ''",
+		"ALTER TABLE users ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE",
+		"ALTER TABLE users ADD COLUMN deleted_at TIMESTAMP NULL",
 	}
 	for _, colStmt := range alterColumns {
 		if _, err := r.db.ExecContext(ctx, colStmt); err != nil {
@@ -382,7 +384,7 @@ func (r *MySQL) FindShippingArea(ctx context.Context, city, district string) (do
 func (r *MySQL) FindCredential(ctx context.Context, email string) (domain.Credential, error) {
 	var credential domain.Credential
 	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,''), password_hash
-		FROM users WHERE email = ?`, email).Scan(
+		FROM users WHERE email = ? AND is_deleted = FALSE`, email).Scan(
 		&credential.User.ID, &credential.User.Name, &credential.User.Email,
 		&credential.User.Role, &credential.User.Phone,
 		&credential.User.Province, &credential.User.City, &credential.User.District,
@@ -731,7 +733,7 @@ func (r *MySQL) UpdateOrderMidtransResponse(ctx context.Context, id int64, respo
 
 func (r *MySQL) ListCustomers(ctx context.Context) ([]domain.User, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,'')
-		FROM users WHERE role = 'buyer' ORDER BY created_at DESC`)
+		FROM users WHERE role = 'buyer' AND is_deleted = FALSE ORDER BY created_at DESC`)
 	if err != nil {
 		log.Printf("[MYSQL ERROR] ListCustomers query gagal: %v", err)
 		return nil, err
@@ -1066,16 +1068,13 @@ func (r *MySQL) DeleteUser(ctx context.Context, userID int64) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, "DELETE FROM orders WHERE user_id = ?", userID); err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM cart_items WHERE user_id = ?", userID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM user_addresses WHERE user_id = ?", userID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", userID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE users SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP, email = CONCAT('deleted_', id, '_', email), password_hash = '' WHERE id = ?", userID); err != nil {
 		return err
 	}
 
