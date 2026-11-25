@@ -26,6 +26,7 @@ type User struct {
 	BankName      string `json:"bank_name"`
 	AccountName   string `json:"account_name"`
 	AccountNumber string `json:"account_number"`
+	Is2FAEnabled  bool   `json:"is_2fa_enabled"`
 }
 
 type Credential struct {

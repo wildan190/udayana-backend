@@ -25,6 +25,12 @@ import (
 type dataStore interface {
 	FindCredential(context.Context, string) (domain.Credential, error)
 	CreateBuyer(context.Context, domain.User, string) (domain.User, error)
+	SaveOTP(context.Context, int64, string, time.Time) error
+	VerifyOTP(context.Context, int64, string) (bool, error)
+	Toggle2FA(context.Context, int64, bool) error
+	SaveBackupCodes(context.Context, int64, []string) error
+	GetBackupCodes(context.Context, int64) ([]string, error)
+	ConsumeBackupCode(context.Context, int64, string) (bool, error)
 	ListProducts(context.Context, domain.ProductQuery) (domain.ProductPage, error)
 	CreateProduct(context.Context, domain.Product) (domain.Product, error)
 	UpdateProduct(context.Context, int64, domain.Product) (domain.Product, error)
@@ -78,35 +84,105 @@ type Store struct {
 	db        dataStore
 	cache     cacheStore
 	jwtSecret []byte
+	emailSvc  *EmailService
 }
 
 func New(db dataStore, cache cacheStore, jwtSecret []byte) *Store {
-	return &Store{db: db, cache: cache, jwtSecret: jwtSecret}
+	return &Store{
+		db:        db,
+		cache:     cache,
+		jwtSecret: jwtSecret,
+		emailSvc:  NewEmailService(),
+	}
 }
+
+var Err2FARequired = errors.New("2fa_required")
 
 func (s *Store) Login(ctx context.Context, email, password string) (domain.User, string, error) {
 	cleanEmail := strings.TrimSpace(strings.ToLower(email))
 	if cleanEmail == "admin@udayana.com" || cleanEmail == "superadmin@udayana.com" || cleanEmail == "admin@udayana.local" {
 		_ = s.db.PromoteAdmin(ctx, cleanEmail)
 	}
-	log.Printf("[LOGIN DEBUG] Mencoba login untuk email: %q", cleanEmail)
 	credential, err := s.db.FindCredential(ctx, cleanEmail)
 	if err != nil {
-		log.Printf("[LOGIN DEBUG] FindCredential gagal untuk email %q: %v", cleanEmail, err)
 		return domain.User{}, "", errors.New("email atau kata sandi tidak valid")
 	}
-	log.Printf("[LOGIN DEBUG] Credential ditemukan untuk ID=%d, Role=%s. Membandingkan password...", credential.User.ID, credential.User.Role)
 	if bcrypt.CompareHashAndPassword([]byte(credential.PasswordHash), []byte(password)) != nil {
-		log.Printf("[LOGIN DEBUG] Password mismatch untuk email %q", cleanEmail)
 		return domain.User{}, "", errors.New("email atau kata sandi tidak valid")
 	}
+
+	if credential.User.Is2FAEnabled {
+		otpCode := fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+		expiresAt := time.Now().Add(10 * time.Minute)
+		if err := s.db.SaveOTP(ctx, credential.User.ID, otpCode, expiresAt); err != nil {
+			return domain.User{}, "", err
+		}
+		_ = s.emailSvc.SendOTPEmail(credential.User.Email, otpCode)
+		return credential.User, "REQUIRES_OTP", Err2FARequired
+	}
+
 	token, err := s.issueToken(credential.User)
 	if err != nil {
-		log.Printf("[LOGIN DEBUG] Gagal generate token untuk user %d: %v", credential.User.ID, err)
 		return domain.User{}, "", err
 	}
-	log.Printf("[LOGIN DEBUG] Login sukses untuk user %d (%s)", credential.User.ID, cleanEmail)
-	return credential.User, token, err
+	return credential.User, token, nil
+}
+
+func (s *Store) VerifyOTPAndLogin(ctx context.Context, userID int64, otpCode string) (domain.User, string, error) {
+	valid, err := s.db.VerifyOTP(ctx, userID, strings.TrimSpace(otpCode))
+	if err != nil || !valid {
+		return domain.User{}, "", errors.New("kode OTP tidak valid atau sudah kedaluwarsa")
+	}
+	user, err := s.db.FindUser(ctx, userID)
+	if err != nil {
+		return domain.User{}, "", err
+	}
+	token, err := s.issueToken(user)
+	if err != nil {
+		return domain.User{}, "", err
+	}
+	return user, token, nil
+}
+
+func (s *Store) Toggle2FA(ctx context.Context, userID int64, enabled bool) error {
+	if userID < 1 {
+		return domain.ValidationError{Message: "ID pengguna tidak valid"}
+	}
+	if err := s.db.Toggle2FA(ctx, userID, enabled); err != nil {
+		return err
+	}
+	if enabled {
+		codes := make([]string, 5)
+		for i := 0; i < 5; i++ {
+			codes[i] = fmt.Sprintf("UDA-%04d-%04d", time.Now().UnixNano()%10000+int64(i*1000), time.Now().UnixNano()%10000)
+		}
+		return s.db.SaveBackupCodes(ctx, userID, codes)
+	} else {
+		return s.db.SaveBackupCodes(ctx, userID, nil)
+	}
+}
+
+func (s *Store) GetBackupCodes(ctx context.Context, userID int64) ([]string, error) {
+	if userID < 1 {
+		return nil, domain.ValidationError{Message: "ID pengguna tidak valid"}
+	}
+	return s.db.GetBackupCodes(ctx, userID)
+}
+
+func (s *Store) VerifyBackupCodeAndLogin(ctx context.Context, userID int64, code string) (domain.User, string, error) {
+	valid, err := s.db.ConsumeBackupCode(ctx, userID, strings.TrimSpace(code))
+	if err != nil || !valid {
+		return domain.User{}, "", errors.New("kode cadangan tidak valid atau sudah pernah digunakan")
+	}
+	user, err := s.db.FindUser(ctx, userID)
+	if err != nil {
+		return domain.User{}, "", err
+	}
+	token, err := s.issueToken(user)
+	if err != nil {
+		return domain.User{}, "", err
+	}
+	return user, token, nil
 }
 
 func (s *Store) RegisterBuyer(ctx context.Context, req requests.RegisterBuyer) (domain.User, string, error) {
@@ -122,6 +198,7 @@ func (s *Store) RegisterBuyer(ctx context.Context, req requests.RegisterBuyer) (
 	if err != nil {
 		return domain.User{}, "", err
 	}
+	_ = s.emailSvc.SendWelcomeEmail(user.Email, user.Name)
 	token, err := s.issueToken(user)
 	return user, token, err
 }

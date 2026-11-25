@@ -38,6 +38,8 @@ func (c *Controller) Routes() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("POST /api/v1/auth/login", c.login)
+	mux.HandleFunc("POST /api/v1/auth/verify-otp", c.verifyOTP)
+	mux.HandleFunc("POST /api/v1/auth/verify-backup-code", c.verifyBackupCode)
 	mux.HandleFunc("POST /api/v1/auth/register", c.registerBuyer)
 	mux.Handle("PUT /api/v1/buyer/address", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.updateBuyerAddress)))
 	mux.Handle("PUT /api/v1/buyer/bank-account", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.updateBankAccount)))
@@ -47,6 +49,8 @@ func (c *Controller) Routes() http.Handler {
 	mux.Handle("PATCH /api/v1/buyer/addresses/{id}/default", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.setDefaultAddress)))
 	mux.Handle("PUT /api/v1/buyer/password", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.changePassword)))
 	mux.Handle("DELETE /api/v1/buyer/account", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.deleteAccount)))
+	mux.Handle("PUT /api/v1/buyer/2fa", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.toggle2FA)))
+	mux.Handle("GET /api/v1/buyer/2fa/backup-codes", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.getBackupCodes)))
 	mux.Handle("GET /api/v1/buyer/cart", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.getCart)))
 	mux.Handle("PUT /api/v1/buyer/cart", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.saveCart)))
 	mux.HandleFunc("POST /api/v1/payments/midtrans/notification", c.midtransNotification)
@@ -93,11 +97,81 @@ func (c *Controller) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, token, err := c.store.Login(r.Context(), request.Email, request.Password)
+	if errors.Is(err, service.Err2FARequired) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"requires_otp": true,
+			"user_id":      user.ID,
+			"email":        user.Email,
+			"message":      "Kode OTP verifikasi telah dikirim ke email Mailtrap Anda.",
+		})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": user, "token": token})
+}
+
+func (c *Controller) verifyOTP(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		UserID int64  `json:"user_id"`
+		OTP    string `json:"otp"`
+	}
+	if !decode(w, r, &request) {
+		return
+	}
+	user, token, err := c.store.VerifyOTPAndLogin(r.Context(), request.UserID, request.OTP)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": user, "token": token})
+}
+
+func (c *Controller) toggle2FA(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.Identity(r)
+	var request struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decode(w, r, &request) {
+		return
+	}
+	if err := c.store.Toggle2FA(r.Context(), userID, request.Enabled); err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	codes, _ := c.store.GetBackupCodes(r.Context(), userID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"message":      "Status verifikasi 2 langkah berhasil diperbarui",
+		"backup_codes": codes,
+	})
+}
+
+func (c *Controller) verifyBackupCode(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		UserID     int64  `json:"user_id"`
+		BackupCode string `json:"backup_code"`
+	}
+	if !decode(w, r, &request) {
+		return
+	}
+	user, token, err := c.store.VerifyBackupCodeAndLogin(r.Context(), request.UserID, request.BackupCode)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": user, "token": token})
+}
+
+func (c *Controller) getBackupCodes(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.Identity(r)
+	codes, err := c.store.GetBackupCodes(r.Context(), userID)
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"backup_codes": codes})
 }
 
 func (c *Controller) registerBuyer(w http.ResponseWriter, r *http.Request) {

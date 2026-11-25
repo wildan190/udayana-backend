@@ -151,6 +151,10 @@ func (r *MySQL) MigrateAndSeed(ctx context.Context) error {
 		"ALTER TABLE orders ADD COLUMN iris_payout_reference VARCHAR(100) NOT NULL DEFAULT ''",
 		"ALTER TABLE users ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE",
 		"ALTER TABLE users ADD COLUMN deleted_at TIMESTAMP NULL",
+		"ALTER TABLE users ADD COLUMN is_2fa_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+		"ALTER TABLE users ADD COLUMN otp_code VARCHAR(10) NULL",
+		"ALTER TABLE users ADD COLUMN otp_expires_at TIMESTAMP NULL",
+		"ALTER TABLE users ADD COLUMN backup_codes TEXT NULL",
 	}
 	for _, colStmt := range alterColumns {
 		if _, err := r.db.ExecContext(ctx, colStmt); err != nil {
@@ -383,13 +387,13 @@ func (r *MySQL) FindShippingArea(ctx context.Context, city, district string) (do
 
 func (r *MySQL) FindCredential(ctx context.Context, email string) (domain.Credential, error) {
 	var credential domain.Credential
-	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,''), password_hash
+	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,''), password_hash, COALESCE(is_2fa_enabled, FALSE)
 		FROM users WHERE email = ? AND is_deleted = FALSE`, email).Scan(
 		&credential.User.ID, &credential.User.Name, &credential.User.Email,
 		&credential.User.Role, &credential.User.Phone,
 		&credential.User.Province, &credential.User.City, &credential.User.District,
 		&credential.User.Subdistrict, &credential.User.RTRW, &credential.User.PostalCode,
-		&credential.User.Address, &credential.PasswordHash)
+		&credential.User.Address, &credential.PasswordHash, &credential.User.Is2FAEnabled)
 	return credential, err
 }
 
@@ -804,11 +808,11 @@ func (r *MySQL) UpdatePassword(ctx context.Context, userID int64, passwordHash s
 
 func (r *MySQL) FindUser(ctx context.Context, userID int64) (domain.User, error) {
 	var user domain.User
-	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,''), COALESCE(bank_name,''), COALESCE(account_name,''), COALESCE(account_number,'')
+	err := r.db.QueryRowContext(ctx, `SELECT id, name, email, role, COALESCE(phone,''), COALESCE(province,''), COALESCE(city,''), COALESCE(district,''), COALESCE(subdistrict,''), COALESCE(rt_rw,''), COALESCE(postal_code,''), COALESCE(address,''), COALESCE(bank_name,''), COALESCE(account_name,''), COALESCE(account_number,''), COALESCE(is_2fa_enabled, FALSE)
 		FROM users WHERE id = ?`, userID).Scan(
 		&user.ID, &user.Name, &user.Email, &user.Role, &user.Phone,
 		&user.Province, &user.City, &user.District, &user.Subdistrict, &user.RTRW, &user.PostalCode, &user.Address,
-		&user.BankName, &user.AccountName, &user.AccountNumber)
+		&user.BankName, &user.AccountName, &user.AccountNumber, &user.Is2FAEnabled)
 	return user, err
 }
 
@@ -1079,6 +1083,72 @@ func (r *MySQL) DeleteUser(ctx context.Context, userID int64) error {
 	}
 
 	return tx.Commit()
+}
+
+func (r *MySQL) SaveOTP(ctx context.Context, userID int64, otpCode string, expiresAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE users SET otp_code = ?, otp_expires_at = ? WHERE id = ?", otpCode, expiresAt, userID)
+	return err
+}
+
+func (r *MySQL) VerifyOTP(ctx context.Context, userID int64, otpCode string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE id = ? AND otp_code = ? AND otp_expires_at > NOW()", userID, otpCode).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	if count > 0 {
+		_, _ = r.db.ExecContext(ctx, "UPDATE users SET otp_code = NULL, otp_expires_at = NULL WHERE id = ?", userID)
+		return true, nil
+	}
+	return false, nil
+}
+
+func (r *MySQL) Toggle2FA(ctx context.Context, userID int64, enabled bool) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE users SET is_2fa_enabled = ? WHERE id = ?", enabled, userID)
+	return err
+}
+
+func (r *MySQL) SaveBackupCodes(ctx context.Context, userID int64, codes []string) error {
+	data, _ := json.Marshal(codes)
+	_, err := r.db.ExecContext(ctx, "UPDATE users SET backup_codes = ? WHERE id = ?", string(data), userID)
+	return err
+}
+
+func (r *MySQL) GetBackupCodes(ctx context.Context, userID int64) ([]string, error) {
+	var raw sql.NullString
+	err := r.db.QueryRowContext(ctx, "SELECT backup_codes FROM users WHERE id = ?", userID).Scan(&raw)
+	if err != nil || !raw.Valid || raw.String == "" {
+		return []string{}, err
+	}
+	var codes []string
+	if err := json.Unmarshal([]byte(raw.String), &codes); err != nil {
+		return []string{}, err
+	}
+	return codes, nil
+}
+
+func (r *MySQL) ConsumeBackupCode(ctx context.Context, userID int64, code string) (bool, error) {
+	codes, err := r.GetBackupCodes(ctx, userID)
+	if err != nil || len(codes) == 0 {
+		return false, err
+	}
+	code = strings.TrimSpace(code)
+	found := false
+	remaining := []string{}
+	for _, c := range codes {
+		if c == code {
+			found = true
+		} else {
+			remaining = append(remaining, c)
+		}
+	}
+	if !found {
+		return false, nil
+	}
+	if err := r.SaveBackupCodes(ctx, userID, remaining); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func IsNotFound(err error) bool {

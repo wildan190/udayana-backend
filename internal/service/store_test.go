@@ -225,6 +225,30 @@ func (*registrationTestStore) DeleteUser(context.Context, int64) error {
 	return nil
 }
 
+func (*registrationTestStore) SaveOTP(context.Context, int64, string, time.Time) error {
+	return nil
+}
+
+func (*registrationTestStore) VerifyOTP(context.Context, int64, string) (bool, error) {
+	return true, nil
+}
+
+func (*registrationTestStore) Toggle2FA(context.Context, int64, bool) error {
+	return nil
+}
+
+func (*registrationTestStore) SaveBackupCodes(context.Context, int64, []string) error {
+	return nil
+}
+
+func (*registrationTestStore) GetBackupCodes(context.Context, int64) ([]string, error) {
+	return []string{"UDA-1234-5678"}, nil
+}
+
+func (*registrationTestStore) ConsumeBackupCode(context.Context, int64, string) (bool, error) {
+	return true, nil
+}
+
 func (*registrationTestStore) FindPasswordHash(context.Context, int64) (string, error) {
 	return "", errors.New("unexpected FindPasswordHash call")
 }
