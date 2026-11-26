@@ -125,6 +125,7 @@ func (s *Store) Login(ctx context.Context, email, password string) (domain.User,
 	if err != nil {
 		return domain.User{}, "", err
 	}
+	_ = s.emailSvc.SendLoginAlertEmail(credential.User.Email, credential.User.Name)
 	return credential.User, token, nil
 }
 
@@ -141,6 +142,7 @@ func (s *Store) VerifyOTPAndLogin(ctx context.Context, userID int64, otpCode str
 	if err != nil {
 		return domain.User{}, "", err
 	}
+	_ = s.emailSvc.SendLoginAlertEmail(user.Email, user.Name)
 	return user, token, nil
 }
 
@@ -182,6 +184,7 @@ func (s *Store) VerifyBackupCodeAndLogin(ctx context.Context, userID int64, code
 	if err != nil {
 		return domain.User{}, "", err
 	}
+	_ = s.emailSvc.SendLoginAlertEmail(user.Email, user.Name)
 	return user, token, nil
 }
 
@@ -464,7 +467,19 @@ func (s *Store) UpdateOrderStatus(ctx context.Context, id int64, status string) 
 	}
 	switch status {
 	case "pending", "processing", "shipping", "completed", "cancelled":
-		return s.db.UpdateOrderStatus(ctx, id, status)
+		if err := s.db.UpdateOrderStatus(ctx, id, status); err != nil {
+			return err
+		}
+		orders, err := s.db.ListOrders(ctx, 0, true)
+		if err == nil {
+			for _, o := range orders {
+				if o.ID == id && o.Customer.Email != "" {
+					_ = s.emailSvc.SendOrderStatusEmail(o.Customer.Email, o.Customer.Name, id, status)
+					break
+				}
+			}
+		}
+		return nil
 	default:
 		return domain.ValidationError{Message: fmt.Sprintf("status pesanan %q tidak dikenali", status)}
 	}

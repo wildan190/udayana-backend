@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"udayana-backend/internal/domain"
 	"udayana-backend/internal/middleware"
@@ -33,14 +34,16 @@ func New(store *service.Store, images storage.ProductImages) *Controller {
 
 func (c *Controller) Routes() http.Handler {
 	mux := http.NewServeMux()
+	authLimiter := middleware.NewRateLimiter(10, 1*time.Minute)
+
 	mux.HandleFunc("GET /{$}", c.home)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("POST /api/v1/auth/login", c.login)
-	mux.HandleFunc("POST /api/v1/auth/verify-otp", c.verifyOTP)
-	mux.HandleFunc("POST /api/v1/auth/verify-backup-code", c.verifyBackupCode)
-	mux.HandleFunc("POST /api/v1/auth/register", c.registerBuyer)
+	mux.Handle("POST /api/v1/auth/login", authLimiter.Limit(http.HandlerFunc(c.login)))
+	mux.Handle("POST /api/v1/auth/verify-otp", authLimiter.Limit(http.HandlerFunc(c.verifyOTP)))
+	mux.Handle("POST /api/v1/auth/verify-backup-code", authLimiter.Limit(http.HandlerFunc(c.verifyBackupCode)))
+	mux.Handle("POST /api/v1/auth/register", authLimiter.Limit(http.HandlerFunc(c.registerBuyer)))
 	mux.Handle("PUT /api/v1/buyer/address", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.updateBuyerAddress)))
 	mux.Handle("PUT /api/v1/buyer/bank-account", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.updateBankAccount)))
 	mux.Handle("GET /api/v1/buyer/addresses", middleware.RequireRole(c.store, "buyer")(http.HandlerFunc(c.listAddresses)))
@@ -102,7 +105,7 @@ func (c *Controller) login(w http.ResponseWriter, r *http.Request) {
 			"requires_otp": true,
 			"user_id":      user.ID,
 			"email":        user.Email,
-			"message":      "Kode OTP verifikasi telah dikirim ke email Mailtrap Anda.",
+			"message":      "Kode OTP verifikasi telah dikirim ke email Anda.",
 		})
 		return
 	}
@@ -947,7 +950,7 @@ func writeOperationError(w http.ResponseWriter, err error) {
 		return
 	}
 	log.Printf("[SERVER ERROR] Operasi gagal: %v", err)
-	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "terjadi kesalahan pada server: " + err.Error()})
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "terjadi kesalahan pada server"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -960,6 +963,11 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
