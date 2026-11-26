@@ -37,6 +37,8 @@ func (c *Controller) Routes() http.Handler {
 	authLimiter := middleware.NewRateLimiter(10, 1*time.Minute)
 
 	mux.HandleFunc("GET /{$}", c.home)
+	mux.HandleFunc("GET /privacy-policy", c.privacyPolicy)
+	mux.HandleFunc("GET /privacy", c.privacyPolicy)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -959,6 +961,101 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	if err := json.NewEncoder(w).Encode(value); err != nil {
 		log.Printf("write response: %v", err)
 	}
+}
+
+func (c *Controller) privacyPolicy(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kebijakan Privasi - Udayana Store</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #2D3748; background-color: #F7FAFC; margin: 0; padding: 0; }
+        .container { max-width: 850px; margin: 40px auto; padding: 32px; background: #FFFFFF; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        h1 { color: #002E69; font-size: 28px; margin-bottom: 8px; border-bottom: 2px solid #E2E8F0; padding-bottom: 12px; }
+        h2 { color: #002E69; font-size: 20px; margin-top: 28px; margin-bottom: 12px; }
+        p, li { font-size: 15px; color: #4A5568; }
+        ul, ol { padding-left: 20px; }
+        .badge { background: #EBF8FF; color: #2B6CB0; padding: 4px 8px; border-radius: 4px; font-weight: 600; font-size: 13px; }
+        .box { background: #EDF2F7; border-left: 4px solid #002E69; padding: 16px; margin: 20px 0; border-radius: 4px; }
+        .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #E2E8F0; text-align: center; font-size: 13px; color: #718096; }
+        a { color: #3182CE; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Kebijakan Privasi Udayana Store</h1>
+        <p><strong>Diperbarui Terakhir:</strong> 2025 | <span class="badge">Aplikasi: Udayana Store (com.udayana_store)</span></p>
+
+        <p>Selamat datang di <strong>Udayana Store</strong>. Kami sangat menghargai privasi Anda dan berkomitmen untuk melindungi data pribadi yang Anda bagikan kepada kami. Kebijakan Privasi ini menjelaskan bagaimana kami mengumpulkan, menggunakan, menyimpan, membagikan, dan menghapus data pribadi pengguna sesuai dengan standar perlindungan data dan kebijakan Google Play Store.</p>
+
+        <h2>1. Data Pribadi yang Kami Kumpulkan</h2>
+        <p>Untuk memberikan layanan e-commerce dan pengiriman barang yang optimal, kami mengumpulkan informasi berikut dari pengguna:</p>
+        <ul>
+            <li><strong>Informasi Identitas & Akun:</strong> Nama lengkap, alamat email, dan nomor telepon.</li>
+            <li><strong>Alamat Pengiriman:</strong> Alamat jalan, RT/RW, kelurahan/subdistrik, kecamatan/distrik, kota/kabupaten, provinsi, dan kode pos untuk keperluan pengiriman pesanan.</li>
+            <li><strong>Informasi Rekening Bank (Pengembalian Dana / Refund):</strong> Nama bank, nomor rekening, dan nama pemilik rekening (digunakan secara opsional untuk pencairan otomatis dana refund jika pesanan dibatalkan via Midtrans IRIS).</li>
+            <li><strong>Media / Foto Produk:</strong> Foto produk yang diunggah oleh admin untuk keperluan kuesioner & katalog toko.</li>
+        </ul>
+
+        <h2>2. Penggunaan Data Pengguna</h2>
+        <p>Data pribadi Anda digunakan khusus untuk tujuan berikut:</p>
+        <ul>
+            <li>Memproses dan memverifikasi pendaftaran akun pengguna.</li>
+            <li>Mengirimkan kode verifikasi 2 langkah (OTP 2FA) dan notifikasi masuk akun ke email Anda.</li>
+            <li>Memproses pesanan belanja, pembayaran, serta koordinasi pengiriman produk.</li>
+            <li>Memproses pencairan dana refund otomatis jika terjadi pembatalan pesanan.</li>
+            <li>Mengirimkan pemberitahuan perubahan status pesanan (Diproses, Dikemas, Dikirim, Selesai).</li>
+        </ul>
+
+        <h2>3. Pembagian Data dengan Pihak Ketiga</h2>
+        <p>Kami <strong>tidak menjual</strong> data pribadi Anda kepada pihak manapun. Data pengguna hanya dibagikan kepada mitra pihak ketiga terpercaya yang diperlukan untuk operasional aplikasi:</p>
+        <ul>
+            <li><strong>Mitra Payment Gateway (Midtrans):</strong> Untuk memproses pembayaran aman (QRIS, Virtual Account, Transfer Bank) serta pencairan refund otomatis (IRIS Payouts).</li>
+            <li><strong>Mitra Ekspedisi / Kurir Pengiriman:</strong> Nama, nomor telepon, dan alamat pengiriman diberikan kepada kurir untuk pengantaran barang fisik.</li>
+        </ul>
+
+        <h2>4. Keamanan & Enkripsi Data</h2>
+        <p>Kami menerapkan langkah-langkah keamanan teknis yang ketat untuk melindungi data pengguna:</p>
+        <ul>
+            <li>Seluruh komunikasi data antara aplikasi dan server dienkripsi menggunakan protokol <strong>HTTPS / TLS</strong>.</li>
+            <li>Kata sandi akun disimpan dalam bentuk hash terenkripsi aman (<strong>BCrypt</strong>).</li>
+            <li>Otentikasi 2 Langkah (2FA) menggunakan kode OTP yang berlaku terbatas (10 menit) dan kode cadangan (<em>Single-use Backup Codes</em>).</li>
+        </ul>
+
+        <h2>5. Hak Pengguna & Kebijakan Penghapusan Akun & Data (Account Deletion)</h2>
+        <div class="box">
+            <p><strong>Hak Penghapusan Akun & Data Pengguna:</strong></p>
+            <p>Pengguna memiliki hak penuh untuk menghapus akun dan seluruh data pribadi mereka kapan saja.</p>
+            <p><strong>Cara Menghapus Akun di Dalam Aplikasi:</strong></p>
+            <ol>
+                <li>Buka aplikasi Udayana Store dan masuk ke akun Anda.</li>
+                <li>Masuk ke menu <strong>Profil Saya</strong> &gt; pilih ikon/menu <strong>Pengaturan Aplikasi</strong>.</li>
+                <li>Gulir ke bawah ke bagian <em>Informasi & Akun</em> dan pilih <strong>Hapus Akun</strong>.</li>
+                <li>Konfirmasi penghapusan. Sesi Anda akan otomatis dikeluarkan dan seluruh data alamat, keranjang, serta kredensial akun akan dibersihkan dari server.</li>
+            </ol>
+            <p><strong>Permohonan Penghapusan Akun via Web / Email:</strong></p>
+            <p>Jika Anda tidak lagi memiliki akses ke aplikasi Udayana Store, Anda dapat mengajukan permohonan penghapusan akun & data pribadi secara tertulis melalui email pengembang kami di <a href="mailto:connect@huntr.id">connect@huntr.id</a> dengan menyertakan nama dan alamat email terdaftar.</p>
+        </div>
+
+        <h2>6. Kontak Pengembang (Developer Contact)</h2>
+        <p>Jika Anda memiliki pertanyaan, saran, atau kendala terkait Kebijakan Privasi ini, silakan hubungi kami melalui:</p>
+        <ul>
+            <li><strong>Email:</strong> <a href="mailto:connect@huntr.id">connect@huntr.id</a></li>
+            <li><strong>Tim Developer:</strong> MPN Solutions (<a href="https://mpnsolutions.my.id/en/" target="_blank">https://mpnsolutions.my.id/en/</a>)</li>
+            <li><strong>Powered by:</strong> Phoenix Technology Indonesia (<a href="https://phoenixtech.web.id" target="_blank">https://phoenixtech.web.id</a>)</li>
+        </ul>
+
+        <div class="footer">
+            <p>&copy; 2025 Udayana Store. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>`))
 }
 
 func cors(next http.Handler) http.Handler {

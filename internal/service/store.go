@@ -117,7 +117,12 @@ func (s *Store) Login(ctx context.Context, email, password string) (domain.User,
 		if err := s.db.SaveOTP(ctx, credential.User.ID, otpCode, expiresAt); err != nil {
 			return domain.User{}, "", err
 		}
-		_ = s.emailSvc.SendOTPEmail(credential.User.Email, otpCode)
+		toEmail := credential.User.Email
+		go func() {
+			if err := s.emailSvc.SendOTPEmail(toEmail, otpCode); err != nil {
+				log.Printf("[BG EMAIL ERROR] SendOTPEmail failed: %v", err)
+			}
+		}()
 		return credential.User, "REQUIRES_OTP", Err2FARequired
 	}
 
@@ -125,7 +130,12 @@ func (s *Store) Login(ctx context.Context, email, password string) (domain.User,
 	if err != nil {
 		return domain.User{}, "", err
 	}
-	_ = s.emailSvc.SendLoginAlertEmail(credential.User.Email, credential.User.Name)
+	uEmail, uName := credential.User.Email, credential.User.Name
+	go func() {
+		if err := s.emailSvc.SendLoginAlertEmail(uEmail, uName); err != nil {
+			log.Printf("[BG EMAIL ERROR] SendLoginAlertEmail failed: %v", err)
+		}
+	}()
 	return credential.User, token, nil
 }
 
@@ -142,7 +152,12 @@ func (s *Store) VerifyOTPAndLogin(ctx context.Context, userID int64, otpCode str
 	if err != nil {
 		return domain.User{}, "", err
 	}
-	_ = s.emailSvc.SendLoginAlertEmail(user.Email, user.Name)
+	uEmail, uName := user.Email, user.Name
+	go func() {
+		if err := s.emailSvc.SendLoginAlertEmail(uEmail, uName); err != nil {
+			log.Printf("[BG EMAIL ERROR] SendLoginAlertEmail failed: %v", err)
+		}
+	}()
 	return user, token, nil
 }
 
@@ -184,7 +199,12 @@ func (s *Store) VerifyBackupCodeAndLogin(ctx context.Context, userID int64, code
 	if err != nil {
 		return domain.User{}, "", err
 	}
-	_ = s.emailSvc.SendLoginAlertEmail(user.Email, user.Name)
+	uEmail, uName := user.Email, user.Name
+	go func() {
+		if err := s.emailSvc.SendLoginAlertEmail(uEmail, uName); err != nil {
+			log.Printf("[BG EMAIL ERROR] SendLoginAlertEmail failed: %v", err)
+		}
+	}()
 	return user, token, nil
 }
 
@@ -201,7 +221,12 @@ func (s *Store) RegisterBuyer(ctx context.Context, req requests.RegisterBuyer) (
 	if err != nil {
 		return domain.User{}, "", err
 	}
-	_ = s.emailSvc.SendWelcomeEmail(user.Email, user.Name)
+	uEmail, uName := user.Email, user.Name
+	go func() {
+		if err := s.emailSvc.SendWelcomeEmail(uEmail, uName); err != nil {
+			log.Printf("[BG EMAIL ERROR] SendWelcomeEmail failed: %v", err)
+		}
+	}()
 	token, err := s.issueToken(user)
 	return user, token, err
 }
@@ -474,7 +499,12 @@ func (s *Store) UpdateOrderStatus(ctx context.Context, id int64, status string) 
 		if err == nil {
 			for _, o := range orders {
 				if o.ID == id && o.Customer.Email != "" {
-					_ = s.emailSvc.SendOrderStatusEmail(o.Customer.Email, o.Customer.Name, id, status)
+					cEmail, cName, oID, st := o.Customer.Email, o.Customer.Name, id, status
+					go func() {
+						if err := s.emailSvc.SendOrderStatusEmail(cEmail, cName, oID, st); err != nil {
+							log.Printf("[BG EMAIL ERROR] SendOrderStatusEmail failed: %v", err)
+						}
+					}()
 					break
 				}
 			}
