@@ -837,18 +837,111 @@ func (r *MySQL) RequestOrderCancellation(ctx context.Context, userID, orderID in
 	if reason == "" {
 		return domain.ValidationError{Message: "alasan pembatalan wajib diisi"}
 	}
+
+	// Jika pesanan masih berstatus pending (belum bayar):
+	// Langsung batalkan pesanan seketika dan pulihkan stok barang.
+	// Pembeli tidak perlu menunggu approval admin dan tidak ada proses refund dana.
+	if current == "pending" {
+		return r.cancelUnpaidOrder(ctx, orderID, reason)
+	}
+
+	// Jika pesanan sudah dibayar (status processing):
+	// Masuk ke tahap permohonan pembatalan & refund untuk diverifikasi admin.
 	_, err := r.db.ExecContext(ctx, `UPDATE orders SET status = 'cancellation_requested', cancellation_reason = ?, refund_bank_name = ?, refund_account_name = ?, refund_account_number = ? WHERE id = ?`,
 		reason, bankName, accountName, accountNumber, orderID)
 	return err
 }
 
+func (r *MySQL) cancelUnpaidOrder(ctx context.Context, orderID int64, reason string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Pulihkan stok barang
+	rows, err := tx.QueryContext(ctx, "SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
+	if err != nil {
+		return err
+	}
+	type stockItem struct {
+		productID int64
+		quantity  int
+	}
+	var items []stockItem
+	for rows.Next() {
+		var it stockItem
+		if err := rows.Scan(&it.productID, &it.quantity); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, it)
+	}
+	rows.Close()
+
+	for _, it := range items {
+		if _, err := tx.ExecContext(ctx, "UPDATE products SET stock = stock + ? WHERE id = ?", it.quantity, it.productID); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'cancelled', cancellation_reason = ?, iris_payout_reference = 'UNPAID-DIRECT-CANCEL' WHERE id = ?", reason, orderID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 func (r *MySQL) ApproveOrderCancellation(ctx context.Context, orderID int64, refNo string) error {
-	_, err := r.db.ExecContext(ctx, "UPDATE orders SET status = 'cancelled', iris_payout_reference = ? WHERE id = ?", refNo, orderID)
-	return err
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Pulihkan stok produk
+	rows, err := tx.QueryContext(ctx, "SELECT product_id, quantity FROM order_items WHERE order_id = ?", orderID)
+	if err != nil {
+		return err
+	}
+	type stockItem struct {
+		productID int64
+		quantity  int
+	}
+	var items []stockItem
+	for rows.Next() {
+		var it stockItem
+		if err := rows.Scan(&it.productID, &it.quantity); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, it)
+	}
+	rows.Close()
+
+	for _, it := range items {
+		if _, err := tx.ExecContext(ctx, "UPDATE products SET stock = stock + ? WHERE id = ?", it.quantity, it.productID); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'cancelled', iris_payout_reference = ? WHERE id = ?", refNo, orderID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (r *MySQL) RejectOrderCancellation(ctx context.Context, orderID int64) error {
-	_, err := r.db.ExecContext(ctx, "UPDATE orders SET status = 'processing' WHERE id = ?", orderID)
+	var refundAcc string
+	if err := r.db.QueryRowContext(ctx, "SELECT COALESCE(refund_account_number, '') FROM orders WHERE id = ?", orderID).Scan(&refundAcc); err != nil {
+		return err
+	}
+	targetStatus := "processing"
+	if refundAcc == "" {
+		targetStatus = "pending"
+	}
+	_, err := r.db.ExecContext(ctx, "UPDATE orders SET status = ? WHERE id = ?", targetStatus, orderID)
 	return err
 }
 

@@ -909,21 +909,15 @@ func (s *Store) ApproveOrderCancellation(ctx context.Context, orderID int64) err
 		return domain.ValidationError{Message: "pesanan tidak ditemukan"}
 	}
 
-	iris := NewIrisClient()
-	bank := target.RefundBankName
-	if bank == "" {
-		bank = target.Customer.BankName
-	}
-	accName := target.RefundAccountName
-	if accName == "" {
-		accName = target.Customer.AccountName
-	}
-	accNo := target.RefundAccountNumber
-	if accNo == "" {
-		accNo = target.Customer.AccountNumber
-	}
+	// Hanya transfer refund otomatis via Midtrans IRIS jika pesanan memang berstatus lunas
+	// dan memiliki rekening pengembalian dana yang diinput saat pengajuan.
+	// JANGAN PERNAH fallback ke rekening profil jika pesanan belum bayar!
+	bank := strings.TrimSpace(target.RefundBankName)
+	accName := strings.TrimSpace(target.RefundAccountName)
+	accNo := strings.TrimSpace(target.RefundAccountNumber)
 
 	if bank != "" && accNo != "" && accName != "" {
+		iris := NewIrisClient()
 		amountStr := fmt.Sprintf("%.2f", float64(target.TotalCents)/100.0)
 		refNo, err := iris.CreatePayout(ctx, accName, accNo, bank, amountStr, fmt.Sprintf("Refund Pesanan #%d", orderID))
 		if err != nil {
@@ -933,7 +927,8 @@ func (s *Store) ApproveOrderCancellation(ctx context.Context, orderID int64) err
 		return s.db.ApproveOrderCancellation(ctx, orderID, refNo)
 	}
 
-	return s.db.ApproveOrderCancellation(ctx, orderID, "REFUND-NO-BANK")
+	// Pesanan belum bayar atau pembatalan tanpa refund dana
+	return s.db.ApproveOrderCancellation(ctx, orderID, "UNPAID-NO-REFUND")
 }
 
 func (s *Store) RejectOrderCancellation(ctx context.Context, orderID int64) error {
