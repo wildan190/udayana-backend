@@ -1039,13 +1039,13 @@ func (c *Controller) privacyPolicy(w http.ResponseWriter, r *http.Request) {
                 <li>Konfirmasi penghapusan. Sesi Anda akan otomatis dikeluarkan dan seluruh data alamat, keranjang, serta kredensial akun akan dibersihkan dari server.</li>
             </ol>
             <p><strong>Permohonan Penghapusan Akun via Web / Email:</strong></p>
-            <p>Jika Anda tidak lagi memiliki akses ke aplikasi Udayana Store, Anda dapat mengajukan permohonan penghapusan akun & data pribadi secara tertulis melalui email pengembang kami di <a href="mailto:connect@huntr.id">connect@huntr.id</a> dengan menyertakan nama dan alamat email terdaftar.</p>
+            <p>Jika Anda tidak lagi memiliki akses ke aplikasi Udayana Store, Anda dapat mengajukan permohonan penghapusan akun & data pribadi secara tertulis melalui email pengembang kami di <a href="mailto:micropadmanusantara@gmail.com">micropadmanusantara@gmail.com</a> dengan menyertakan nama dan alamat email terdaftar.</p>
         </div>
 
         <h2>6. Kontak Pengembang (Developer Contact)</h2>
         <p>Jika Anda memiliki pertanyaan, saran, atau kendala terkait Kebijakan Privasi ini, silakan hubungi kami melalui:</p>
         <ul>
-            <li><strong>Email:</strong> <a href="mailto:connect@huntr.id">connect@huntr.id</a></li>
+            <li><strong>Email:</strong> <a href="mailto:micropadmanusantara@gmail.com">micropadmanusantara@gmail.com</a></li>
             <li><strong>Tim Developer:</strong> MPN Solutions (<a href="https://mpnsolutions.my.id/en/" target="_blank">https://mpnsolutions.my.id/en/</a>)</li>
             <li><strong>Powered by:</strong> Phoenix Technology Indonesia (<a href="https://phoenixtech.web.id" target="_blank">https://phoenixtech.web.id</a>)</li>
         </ul>
