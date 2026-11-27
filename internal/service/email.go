@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/smtp"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -17,22 +19,55 @@ type EmailService struct {
 }
 
 func NewEmailService() *EmailService {
+	host := getEnvAny([]string{"MAIL_HOST", "SMTP_HOST"}, "smtp.gmail.com")
+	port := getEnvAny([]string{"MAIL_PORT", "SMTP_PORT"}, "587")
+	username := getEnvAny([]string{"MAIL_USERNAME", "SMTP_USERNAME"}, "support@huntr.id")
+	password := getEnvAny([]string{"MAIL_PASSWORD", "SMTP_PASSWORD"}, "dtts kgcc cpyz xizv")
+	from := getEnvAny([]string{"MAIL_FROM_ADDRESS", "SMTP_FROM_EMAIL"}, "support@huntr.id")
+	fromName := getEnvAny([]string{"MAIL_FROM_NAME", "SMTP_FROM_NAME"}, "Huntr API")
+
+	password = strings.Trim(password, "\"' \t\r\n")
+	if strings.Contains(host, "gmail") {
+		password = strings.ReplaceAll(password, " ", "")
+	}
+
 	return &EmailService{
-		host:     "sandbox.smtp.mailtrap.io",
-		port:     "2525",
-		username: "37bbb13344331f",
-		password: "96393d3c9160ff",
-		from:     "connect@huntr.id",
-		fromName: "Huntr Dev",
+		host:     host,
+		port:     port,
+		username: username,
+		password: password,
+		from:     from,
+		fromName: fromName,
 	}
 }
 
-func (e *EmailService) SendOTPEmail(toEmail, otpCode string) error {
-	auth := smtp.PlainAuth("", e.username, e.password, e.host)
-	addr := fmt.Sprintf("%s:%s", e.host, e.port)
+func getEnvAny(keys []string, fallback string) string {
+	for _, k := range keys {
+		if val := strings.TrimSpace(os.Getenv(k)); val != "" {
+			return val
+		}
+	}
+	return fallback
+}
 
-	subject := "Subject: Kode Verifikasi 2 Langkah (OTP) - Udayana Store\n"
-	mime := "MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n"
+func (e *EmailService) send(toEmail, subject, bodyHTML string) error {
+	addr := fmt.Sprintf("%s:%s", e.host, e.port)
+	auth := smtp.PlainAuth("", e.username, e.password, e.host)
+
+	msg := fmt.Sprintf("From: %s <%s>\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s",
+		e.fromName, e.from, toEmail, subject, bodyHTML)
+
+	err := smtp.SendMail(addr, auth, e.from, []string{toEmail}, []byte(msg))
+	if err != nil {
+		log.Printf("[MAIL ERROR] Gagal mengirim email '%s' ke %s: %v", subject, toEmail, err)
+		return err
+	}
+	log.Printf("[MAIL INFO] Email '%s' berhasil dikirim ke %s", subject, toEmail)
+	return nil
+}
+
+func (e *EmailService) SendOTPEmail(toEmail, otpCode string) error {
+	subject := "Kode Verifikasi 2 Langkah (OTP) - Udayana Store"
 	body := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
 			<h2>Verifikasi 2 Langkah (2FA)</h2>
@@ -45,23 +80,11 @@ func (e *EmailService) SendOTPEmail(toEmail, otpCode string) error {
 		</div>
 	`, otpCode, e.fromName)
 
-	msg := []byte(fmt.Sprintf("From: %s <%s>\nTo: %s\n%s%s", e.fromName, e.from, toEmail, subject, mime+body))
-
-	err := smtp.SendMail(addr, auth, e.from, []string{toEmail}, msg)
-	if err != nil {
-		log.Printf("[MAIL ERROR] Gagal mengirim email OTP ke %s: %v", toEmail, err)
-		return err
-	}
-	log.Printf("[MAIL INFO] Email OTP berhasil dikirim ke %s", toEmail)
-	return nil
+	return e.send(toEmail, subject, body)
 }
 
 func (e *EmailService) SendWelcomeEmail(toEmail, name string) error {
-	auth := smtp.PlainAuth("", e.username, e.password, e.host)
-	addr := fmt.Sprintf("%s:%s", e.host, e.port)
-
-	subject := "Subject: Selamat Datang di Udayana Store!\n"
-	mime := "MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n"
+	subject := "Selamat Datang di Udayana Store!"
 	body := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
 			<h2>Pendaftaran Berhasil!</h2>
@@ -72,23 +95,11 @@ func (e *EmailService) SendWelcomeEmail(toEmail, name string) error {
 		</div>
 	`, name, e.fromName)
 
-	msg := []byte(fmt.Sprintf("From: %s <%s>\nTo: %s\n%s%s", e.fromName, e.from, toEmail, subject, mime+body))
-
-	err := smtp.SendMail(addr, auth, e.from, []string{toEmail}, msg)
-	if err != nil {
-		log.Printf("[MAIL ERROR] Gagal mengirim email konfirmasi signup ke %s: %v", toEmail, err)
-		return err
-	}
-	log.Printf("[MAIL INFO] Email konfirmasi signup berhasil dikirim ke %s", toEmail)
-	return nil
+	return e.send(toEmail, subject, body)
 }
 
 func (e *EmailService) SendLoginAlertEmail(toEmail, name string) error {
-	auth := smtp.PlainAuth("", e.username, e.password, e.host)
-	addr := fmt.Sprintf("%s:%s", e.host, e.port)
-
-	subject := "Subject: Pemberitahuan Masuk Akun - Udayana Store\n"
-	mime := "MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n"
+	subject := "Pemberitahuan Masuk Akun - Udayana Store"
 	body := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
 			<h2>Pemberitahuan Masuk Akun</h2>
@@ -100,21 +111,10 @@ func (e *EmailService) SendLoginAlertEmail(toEmail, name string) error {
 		</div>
 	`, name, time.Now().Format("02 Jan 2006 15:04 WIB"), e.fromName)
 
-	msg := []byte(fmt.Sprintf("From: %s <%s>\nTo: %s\n%s%s", e.fromName, e.from, toEmail, subject, mime+body))
-
-	err := smtp.SendMail(addr, auth, e.from, []string{toEmail}, msg)
-	if err != nil {
-		log.Printf("[MAIL ERROR] Gagal mengirim email login alert ke %s: %v", toEmail, err)
-		return err
-	}
-	log.Printf("[MAIL INFO] Email login alert berhasil dikirim ke %s", toEmail)
-	return nil
+	return e.send(toEmail, subject, body)
 }
 
 func (e *EmailService) SendOrderStatusEmail(toEmail, name string, orderID int64, status string) error {
-	auth := smtp.PlainAuth("", e.username, e.password, e.host)
-	addr := fmt.Sprintf("%s:%s", e.host, e.port)
-
 	var statusTitle, statusDesc string
 	switch status {
 	case "processing":
@@ -134,8 +134,7 @@ func (e *EmailService) SendOrderStatusEmail(toEmail, name string, orderID int64,
 		statusDesc = fmt.Sprintf("Status pesanan Anda kini telah diperbarui menjadi %s.", status)
 	}
 
-	subject := fmt.Sprintf("Subject: [%s] Pesanan #%d - Udayana Store\n", statusTitle, orderID)
-	mime := "MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n"
+	subject := fmt.Sprintf("[%s] Pesanan #%d - Udayana Store", statusTitle, orderID)
 	body := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
 			<h2 style="color: #002E69;">%s</h2>
@@ -148,13 +147,5 @@ func (e *EmailService) SendOrderStatusEmail(toEmail, name string, orderID int64,
 		</div>
 	`, statusTitle, name, orderID, statusTitle, statusDesc, e.fromName)
 
-	msg := []byte(fmt.Sprintf("From: %s <%s>\nTo: %s\n%s%s", e.fromName, e.from, toEmail, subject, mime+body))
-
-	err := smtp.SendMail(addr, auth, e.from, []string{toEmail}, msg)
-	if err != nil {
-		log.Printf("[MAIL ERROR] Gagal mengirim email status pesanan ke %s: %v", toEmail, err)
-		return err
-	}
-	log.Printf("[MAIL INFO] Email status pesanan berhasil dikirim ke %s", toEmail)
-	return nil
+	return e.send(toEmail, subject, body)
 }

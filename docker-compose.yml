@@ -91,6 +91,13 @@ services:
       MIDTRANS_ENV: ${MIDTRANS_ENV:-production}
       MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-Mid-server-4MjfNoKyHg2hSZpfcHTq4KuW}
       MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-Mid-client-v5rqlvwW-Gd8S6C_}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-support@huntr.id}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-dttskgcccpyzxizv}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-support@huntr.id}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Huntr API}
+      MAIL_ENCRYPTION: ${MAIL_ENCRYPTION:-tls}
     volumes:
       - uploads_data:/app/uploads
     healthcheck:
